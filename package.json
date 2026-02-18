@@ -8,13 +8,14 @@
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
-  "keywords": ["wardaropa", "social", "fashion"],
+  "keywords": ["wardaropa", "social", "warda"],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
     "express-ws": "^5.0.2",
     "body-parser": "^1.20.2",
-    "bcrypt": "^5.1.1"
+    "bcrypt": "^5.1.1",
+    "mysql2": "^3.6.0"
   }
 }
