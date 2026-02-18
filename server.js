@@ -1,14 +1,14 @@
 import express from 'express';
 import ExpressWs from 'express-ws';
 import bodyParser from 'body-parser';
-import path from 'path';
 import { fileURLToPath } from 'url';
+import path from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const PORT = 3000;
 
 const app = ExpressWs(express()).app;
-const PORT = 3000;
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -44,6 +44,6 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor Wardaropa corriendo en puerto ${PORT}`);
-  console.log(`Process ID: ${process.pid}`);
+  console.log(`✓ Servidor Wardaropa corriendo en puerto ${PORT}`);
+  console.log(`📋 Process ID: ${process.pid}`);
 });
