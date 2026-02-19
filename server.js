@@ -18,6 +18,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  
   next();
 });
 
@@ -119,6 +125,8 @@ app.post('/posts', async (req, res) => {
 });
 
 app.get('/posts', async (req, res) => {
+  const { usuario_id } = req.query;
+  
   try {
     const [posts] = await pool.query(`
       SELECT 
@@ -129,14 +137,15 @@ app.get('/posts', async (req, res) => {
         u.id as usuario_id,
         u.username,
         COUNT(DISTINCT l.id) as likes_count,
-        COUNT(DISTINCT c.id) as comments_count
+        COUNT(DISTINCT c.id) as comments_count,
+        ${usuario_id ? `MAX(CASE WHEN l.usuario_id = ? THEN 1 ELSE 0 END) as user_liked` : '0 as user_liked'}
       FROM posts p
       INNER JOIN usuarios u ON p.usuario_id = u.id
       LEFT JOIN likes l ON p.id = l.post_id
       LEFT JOIN comentarios c ON p.id = c.post_id
       GROUP BY p.id
       ORDER BY p.created_at DESC
-    `);
+    `, usuario_id ? [usuario_id] : []);
     
     res.json({ success: true, posts });
   } catch (error) {
