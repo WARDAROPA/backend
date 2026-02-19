@@ -94,6 +94,152 @@ app.post('/login', async (req, res) => {
   }
 });
 
+app.post('/posts', async (req, res) => {
+  const { usuario_id, descripcion, foto } = req.body;
+  
+  if (!usuario_id || !foto) {
+    return res.status(400).json({ error: 'Usuario y foto son obligatorios' });
+  }
+  
+  try {
+    const [result] = await pool.query(
+      'INSERT INTO posts (usuario_id, descripcion, foto) VALUES (?, ?, ?)',
+      [usuario_id, descripcion || '', foto]
+    );
+    
+    res.json({ 
+      success: true, 
+      message: 'Post creado correctamente',
+      postId: result.insertId 
+    });
+  } catch (error) {
+    console.error('Error al crear post:', error);
+    res.status(500).json({ error: 'Error al crear post' });
+  }
+});
+
+app.get('/posts', async (req, res) => {
+  try {
+    const [posts] = await pool.query(`
+      SELECT 
+        p.id,
+        p.descripcion,
+        p.foto,
+        p.created_at,
+        u.id as usuario_id,
+        u.username,
+        COUNT(DISTINCT l.id) as likes_count,
+        COUNT(DISTINCT c.id) as comments_count
+      FROM posts p
+      INNER JOIN usuarios u ON p.usuario_id = u.id
+      LEFT JOIN likes l ON p.id = l.post_id
+      LEFT JOIN comentarios c ON p.id = c.post_id
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+    `);
+    
+    res.json({ success: true, posts });
+  } catch (error) {
+    console.error('Error al obtener posts:', error);
+    res.status(500).json({ error: 'Error al obtener posts' });
+  }
+});
+
+app.post('/posts/:postId/like', async (req, res) => {
+  const { postId } = req.params;
+  const { usuario_id } = req.body;
+  
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio' });
+  }
+  
+  try {
+    await pool.query(
+      'INSERT INTO likes (post_id, usuario_id) VALUES (?, ?)',
+      [postId, usuario_id]
+    );
+    
+    res.json({ success: true, message: 'Like añadido' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      res.status(400).json({ error: 'Ya has dado like a este post' });
+    } else {
+      console.error('Error al dar like:', error);
+      res.status(500).json({ error: 'Error al dar like' });
+    }
+  }
+});
+
+app.delete('/posts/:postId/like', async (req, res) => {
+  const { postId } = req.params;
+  const { usuario_id } = req.body;
+  
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio' });
+  }
+  
+  try {
+    await pool.query(
+      'DELETE FROM likes WHERE post_id = ? AND usuario_id = ?',
+      [postId, usuario_id]
+    );
+    
+    res.json({ success: true, message: 'Like eliminado' });
+  } catch (error) {
+    console.error('Error al eliminar like:', error);
+    res.status(500).json({ error: 'Error al eliminar like' });
+  }
+});
+
+app.post('/posts/:postId/comments', async (req, res) => {
+  const { postId } = req.params;
+  const { usuario_id, texto } = req.body;
+  
+  if (!usuario_id || !texto) {
+    return res.status(400).json({ error: 'Usuario y texto son obligatorios' });
+  }
+  
+  try {
+    const [result] = await pool.query(
+      'INSERT INTO comentarios (post_id, usuario_id, texto) VALUES (?, ?, ?)',
+      [postId, usuario_id, texto]
+    );
+    
+    res.json({ 
+      success: true, 
+      message: 'Comentario añadido',
+      commentId: result.insertId 
+    });
+  } catch (error) {
+    console.error('Error al añadir comentario:', error);
+    res.status(500).json({ error: 'Error al añadir comentario' });
+  }
+});
+
+app.get('/posts/:postId/comments', async (req, res) => {
+  const { postId } = req.params;
+  
+  try {
+    const [comments] = await pool.query(`
+      SELECT 
+        c.id,
+        c.texto,
+        c.created_at,
+        u.id as usuario_id,
+        u.username
+      FROM comentarios c
+      INNER JOIN usuarios u ON c.usuario_id = u.id
+      WHERE c.post_id = ?
+      ORDER BY c.created_at ASC
+    `, [postId]);
+    
+    res.json({ success: true, comments });
+  } catch (error) {
+    console.error('Error al obtener comentarios:', error);
+    res.status(500).json({ error: 'Error al obtener comentarios' });
+  }
+});
+
 app.ws('/', (connection, req) => {
   console.log('Usuario conectado via WebSocket');
   
