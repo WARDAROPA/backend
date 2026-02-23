@@ -249,6 +249,82 @@ app.get('/posts/:postId/comments', async (req, res) => {
   }
 });
 
+app.get('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, username, email FROM usuarios WHERE id = ?',
+      [id]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    
+    res.json({ success: true, user: rows[0] });
+  } catch (error) {
+    console.error('Error al obtener usuario:', error);
+    res.status(500).json({ error: 'Error al obtener usuario' });
+  }
+});
+
+app.get('/users/:id/posts', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const [posts] = await pool.query(`
+      SELECT 
+        p.id,
+        p.descripcion,
+        p.foto,
+        p.created_at,
+        COUNT(DISTINCT l.id) as likes_count,
+        COUNT(DISTINCT c.id) as comments_count
+      FROM posts p
+      LEFT JOIN likes l ON p.id = l.post_id
+      LEFT JOIN comentarios c ON p.id = c.post_id
+      WHERE p.usuario_id = ?
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+    `, [id]);
+    
+    res.json({ success: true, posts });
+  } catch (error) {
+    console.error('Error al obtener posts del usuario:', error);
+    res.status(500).json({ error: 'Error al obtener posts del perfil' });
+  }
+});
+
+
+app.delete('/posts/:postId', async (req, res) => {
+  const { postId } = req.params;
+  const { usuario_id } = req.body; 
+  
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio para borrar' });
+  }
+  
+  try {
+    await pool.query('DELETE FROM likes WHERE post_id = ?', [postId]);
+    await pool.query('DELETE FROM comentarios WHERE post_id = ?', [postId]);
+    
+    const [result] = await pool.query(
+      'DELETE FROM posts WHERE id = ? AND usuario_id = ?',
+      [postId, usuario_id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(403).json({ error: 'No autorizado o el post no existe' });
+    }
+    
+    res.json({ success: true, message: 'Publicación borrada correctamente' });
+  } catch (error) {
+    console.error('Error al borrar post:', error);
+    res.status(500).json({ error: 'Error al borrar la publicación' });
+  }
+});
+
 app.ws('/', (connection, req) => {
   console.log('Usuario conectado via WebSocket');
   
