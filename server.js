@@ -325,7 +325,7 @@ app.delete('/posts/:postId', async (req, res) => {
   }
 });
 
-app.ws('/', (connection, req) => {
+app.ws('/api', (connection, req) => {
   console.log('Usuario conectado via WebSocket');
   
   connection.send(JSON.stringify({ message: 'Conectado a Wardaropa' }));
