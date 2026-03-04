@@ -349,6 +349,233 @@ app.ws('/api', (connection, req) => {
   });
 });
 
+// ==================== NOTICIAS (FEEDS) ====================
+
+// Obtener todas las noticias
+app.get('/noticias', async (req, res) => {
+  const { usuario_id, fuente } = req.query;
+
+  try {
+    let query = `
+      SELECT 
+        n.id,
+        n.titulo,
+        n.texto,
+        n.imagen,
+        n.fuente,
+        n.created_at,
+        n.usuario_id,
+        u.username,
+        COUNT(DISTINCT cn.id) as comments_count,
+        COUNT(DISTINCT ln.id) as likes_count
+        ${usuario_id ? `, MAX(CASE WHEN ln.usuario_id = ? THEN 1 ELSE 0 END) as user_liked` : ', 0 as user_liked'}
+      FROM noticias n
+      LEFT JOIN usuarios u ON n.usuario_id = u.id
+      LEFT JOIN comentarios_noticias cn ON n.id = cn.noticia_id
+      LEFT JOIN likes_noticias ln ON n.id = ln.noticia_id
+    `;
+
+    const params = [];
+    if (usuario_id) params.push(usuario_id);
+
+    if (fuente) {
+      query += ` WHERE n.fuente = ?`;
+      params.push(fuente);
+    }
+
+    query += ` GROUP BY n.id ORDER BY n.created_at DESC`;
+
+    const [noticias] = await pool.query(query, params);
+    res.json({ success: true, noticias });
+  } catch (error) {
+    console.error('Error al obtener noticias:', error);
+    res.status(500).json({ error: 'Error al obtener noticias' });
+  }
+});
+
+// Obtener una noticia por ID
+app.get('/noticias/:id', async (req, res) => {
+  const { id } = req.params;
+  const { usuario_id } = req.query;
+
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        n.id,
+        n.titulo,
+        n.texto,
+        n.imagen,
+        n.fuente,
+        n.created_at,
+        n.usuario_id,
+        u.username,
+        COUNT(DISTINCT cn.id) as comments_count,
+        COUNT(DISTINCT ln.id) as likes_count
+        ${usuario_id ? `, MAX(CASE WHEN ln.usuario_id = ? THEN 1 ELSE 0 END) as user_liked` : ', 0 as user_liked'}
+      FROM noticias n
+      LEFT JOIN usuarios u ON n.usuario_id = u.id
+      LEFT JOIN comentarios_noticias cn ON n.id = cn.noticia_id
+      LEFT JOIN likes_noticias ln ON n.id = ln.noticia_id
+      WHERE n.id = ?
+      GROUP BY n.id
+    `, usuario_id ? [usuario_id, id] : [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Noticia no encontrada' });
+    }
+
+    res.json({ success: true, noticia: rows[0] });
+  } catch (error) {
+    console.error('Error al obtener noticia:', error);
+    res.status(500).json({ error: 'Error al obtener noticia' });
+  }
+});
+
+// Crear noticia (usuario)
+app.post('/noticias', async (req, res) => {
+  const { usuario_id, titulo, texto, imagen } = req.body;
+
+  if (!titulo || !texto) {
+    return res.status(400).json({ error: 'Título y texto son obligatorios' });
+  }
+
+  try {
+    const fuente = usuario_id ? 'usuario' : 'n8n';
+    const [result] = await pool.query(
+      'INSERT INTO noticias (usuario_id, titulo, texto, imagen, fuente) VALUES (?, ?, ?, ?, ?)',
+      [usuario_id || null, titulo, texto, imagen || null, fuente]
+    );
+
+    res.json({
+      success: true,
+      message: 'Noticia creada correctamente',
+      noticiaId: result.insertId
+    });
+  } catch (error) {
+    console.error('Error al crear noticia:', error);
+    res.status(500).json({ error: 'Error al crear noticia' });
+  }
+});
+
+// Eliminar noticia
+app.delete('/noticias/:id', async (req, res) => {
+  const { id } = req.params;
+  const { usuario_id } = req.body;
+
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM noticias WHERE id = ? AND usuario_id = ?',
+      [id, usuario_id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(403).json({ error: 'No autorizado o la noticia no existe' });
+    }
+
+    res.json({ success: true, message: 'Noticia eliminada correctamente' });
+  } catch (error) {
+    console.error('Error al eliminar noticia:', error);
+    res.status(500).json({ error: 'Error al eliminar noticia' });
+  }
+});
+
+// Like noticia
+app.post('/noticias/:id/like', async (req, res) => {
+  const { id } = req.params;
+  const { usuario_id } = req.body;
+
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio' });
+  }
+
+  try {
+    await pool.query(
+      'INSERT INTO likes_noticias (noticia_id, usuario_id) VALUES (?, ?)',
+      [id, usuario_id]
+    );
+    res.json({ success: true, message: 'Like añadido' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      res.status(400).json({ error: 'Ya has dado like a esta noticia' });
+    } else {
+      console.error('Error al dar like:', error);
+      res.status(500).json({ error: 'Error al dar like' });
+    }
+  }
+});
+
+// Unlike noticia
+app.delete('/noticias/:id/like', async (req, res) => {
+  const { id } = req.params;
+  const { usuario_id } = req.body;
+
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio' });
+  }
+
+  try {
+    await pool.query(
+      'DELETE FROM likes_noticias WHERE noticia_id = ? AND usuario_id = ?',
+      [id, usuario_id]
+    );
+    res.json({ success: true, message: 'Like eliminado' });
+  } catch (error) {
+    console.error('Error al eliminar like:', error);
+    res.status(500).json({ error: 'Error al eliminar like' });
+  }
+});
+
+// Obtener comentarios de una noticia
+app.get('/noticias/:id/comments', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [comments] = await pool.query(`
+      SELECT 
+        cn.id,
+        cn.texto,
+        cn.created_at,
+        u.id as usuario_id,
+        u.username
+      FROM comentarios_noticias cn
+      INNER JOIN usuarios u ON cn.usuario_id = u.id
+      WHERE cn.noticia_id = ?
+      ORDER BY cn.created_at ASC
+    `, [id]);
+
+    res.json({ success: true, comments });
+  } catch (error) {
+    console.error('Error al obtener comentarios:', error);
+    res.status(500).json({ error: 'Error al obtener comentarios' });
+  }
+});
+
+// Crear comentario en noticia
+app.post('/noticias/:id/comments', async (req, res) => {
+  const { id } = req.params;
+  const { usuario_id, texto } = req.body;
+
+  if (!usuario_id || !texto) {
+    return res.status(400).json({ error: 'Usuario y texto son obligatorios' });
+  }
+
+  try {
+    const [result] = await pool.query(
+      'INSERT INTO comentarios_noticias (noticia_id, usuario_id, texto) VALUES (?, ?, ?)',
+      [id, usuario_id, texto]
+    );
+
+    res.json({
+      success: true,
+      message: 'Comentario añadido',
+      commentId: result.insertId
+    });
+  } catch (error) {
+    console.error('Error al añadir comentario:', error);
+    res.status(500).json({ error: 'Error al añadir comentario' });
+  }
+});
+
 app.use((err, req, res, next) => {
   console.error('Error:', err.stack);
   res.status(500).send('Error en el servidor');

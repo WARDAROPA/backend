@@ -59,6 +59,43 @@ export async function initDatabase() {
         FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
       )
     `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS noticias (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        usuario_id INT DEFAULT NULL,
+        titulo VARCHAR(500) NOT NULL,
+        texto TEXT NOT NULL,
+        imagen LONGTEXT DEFAULT NULL,
+        fuente ENUM('n8n', 'usuario') DEFAULT 'usuario',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+      )
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS comentarios_noticias (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        noticia_id INT NOT NULL,
+        usuario_id INT NOT NULL,
+        texto TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+      )
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS likes_noticias (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        noticia_id INT NOT NULL,
+        usuario_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (noticia_id) REFERENCES noticias(id) ON DELETE CASCADE,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_like_noticia (noticia_id, usuario_id)
+      )
+    `);
     
     connection.release();
     console.log('Base de datos inicializada correctamente');
