@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = ExpressWs(express()).app;
 const PORT = 3000;
 const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook/3717090c-f984-499d-b1b7-4820eb32970b';
+const DEFAULT_N8N_POST_MATCH_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook-test/match-prenda';
 
 app.use((req, res, next) => {
   const allowedOrigins = ['http://localhost:4200', 'https://4.233.184.106', 'http://4.233.184.106', 'https://wardaropa.github.io'];
@@ -358,6 +359,96 @@ app.post('/posts/:postId/ia-description', async (req, res) => {
   } catch (error) {
     console.error('Error al solicitar descripcion IA:', error);
     res.status(500).json({ error: 'Error al solicitar descripcion IA' });
+  }
+});
+
+app.post('/posts/:postId/match', async (req, res) => {
+  const { postId } = req.params;
+  const { usuario_id } = req.body;
+
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio' });
+  }
+
+  const webhookUrl = process.env.N8N_POST_MATCH_WEBHOOK_URL || DEFAULT_N8N_POST_MATCH_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return res.status(500).json({ error: 'Webhook de match no configurado (N8N_POST_MATCH_WEBHOOK_URL)' });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, usuario_id, descripcion, descripcion_prenda, foto FROM posts WHERE id = ? LIMIT 1',
+      [postId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Post no encontrado' });
+    }
+
+    const post = rows[0];
+
+    const webhookResponse = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        post_id: post.id,
+        usuario_id_click: Number(usuario_id),
+        usuario_id_propietario_post: post.usuario_id,
+        pie_foto: post.descripcion || '',
+        descripcion_prenda: post.descripcion_prenda || '',
+        foto_base64: post.foto || ''
+      })
+    });
+
+    const rawResponse = await webhookResponse.text();
+    let parsedResponse = {};
+    try {
+      parsedResponse = rawResponse ? JSON.parse(rawResponse) : {};
+    } catch {
+      parsedResponse = {};
+    }
+
+    if (!webhookResponse.ok) {
+      return res.status(502).json({
+        error: 'Error al solicitar match en n8n',
+        n8n_status: webhookResponse.status,
+        n8n_response: rawResponse
+      });
+    }
+
+    const maybePercentage = Number(
+      parsedResponse.porcentaje ??
+      parsedResponse.match_percentage ??
+      parsedResponse.score ??
+      parsedResponse.puntuacion
+    );
+
+    const percentageFromText = rawResponse.match(/(\d{1,3})(?:\s?%)/);
+    const porcentaje = Number.isFinite(maybePercentage)
+      ? Math.max(0, Math.min(100, Math.round(maybePercentage)))
+      : percentageFromText
+        ? Math.max(0, Math.min(100, Number(percentageFromText[1])))
+        : 0;
+
+    const descripcion = String(
+      parsedResponse.descripcion ??
+      parsedResponse.description ??
+      parsedResponse.texto ??
+      parsedResponse.explicacion ??
+      rawResponse ??
+      ''
+    ).trim();
+
+    res.json({
+      success: true,
+      porcentaje,
+      descripcion: descripcion || 'No se recibio descripcion del match.'
+    });
+  } catch (error) {
+    console.error('Error al solicitar match IA:', error);
+    res.status(500).json({ error: 'Error al solicitar match IA' });
   }
 });
 
