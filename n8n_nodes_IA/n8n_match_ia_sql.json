@@ -1,0 +1,156 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=key_api_gemini",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents[0].parts[0].text",
+              "value": "=Actúa como un experto en moda. Describe detalladamente la prenda principal de esta imagen para un catálogo o base de datos. El usuario ha publicado la foto con este texto: '{{ $json.body.pie_foto }}'. Genera una descripción atractiva pero objetiva y concisa. Unicamente responde con la descripcion de la prenda y sus colores"
+            },
+            {
+              "name": "contents[0].parts[1].inline_data.mime_type",
+              "value": "image/webp"
+            },
+            {
+              "name": "contents[0].parts[1].inline_data.data",
+              "value": "={{ $json.body.foto_base64.split(',')[1] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3d4df94a-2516-4406-9b4a-6795beba309e",
+      "name": "Llamar a Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        208,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "descripcion_prenda",
+              "stringValue": "={{ $json.candidates[0].content.parts[0].text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6e87162f-564e-49db-b872-b7365053100f",
+      "name": "Extraer Descripción",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [
+        576,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "3717090c-f984-499d-b1b7-4820eb32970b",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "cbc3890f-1c4c-4784-86d9-50fe8b9f17b1",
+      "name": "Webhook1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -176,
+        336
+      ],
+      "webhookId": "040adc86-fae2-4e47-be30-91fb9369a17a"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "table": {
+          "__rl": true,
+          "value": "posts",
+          "mode": "list",
+          "cachedResultName": "posts"
+        },
+        "dataMode": "defineBelow",
+        "columnToMatchOn": "id",
+        "valueToMatchOn": "={{ $('Webhook1').item.json.body.post_id }}",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "descripcion_prenda",
+              "value": "={{ $json.descripcion_prenda }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        800,
+        336
+      ],
+      "id": "c18c4548-bee5-4478-a6a8-df8c9d56bc10",
+      "name": "Update rows in a table",
+      "credentials": {
+        "mySql": {
+          "id": "df6V8NeUP9xusHY9",
+          "name": "MySQL account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Llamar a Gemini": {
+      "main": [
+        [
+          {
+            "node": "Extraer Descripción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Descripción": {
+      "main": [
+        [
+          {
+            "node": "Update rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Llamar a Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update rows in a table": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f2d976ac820a993756afa7a65a73c4005d7455fac46d1ab6b9794f31dd00df0b"
+  }
+}

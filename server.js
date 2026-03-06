@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 const app = ExpressWs(express()).app;
 const PORT = 3000;
 const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook/3717090c-f984-499d-b1b7-4820eb32970b';
-const DEFAULT_N8N_POST_MATCH_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook-test/match-prenda';
+const DEFAULT_N8N_POST_MATCH_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook/3717090c-f984-499d-b1b7-4820eb32970b';
 
 app.use((req, res, next) => {
   const allowedOrigins = ['http://localhost:4200', 'https://4.233.184.106', 'http://4.233.184.106', 'https://wardaropa.github.io'];
