@@ -13,9 +13,6 @@ const app = ExpressWs(express()).app;
 const PORT = 3000;
 const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook/3717090c-f984-499d-b1b7-4820eb32970b';
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
 app.use((req, res, next) => {
   const allowedOrigins = ['http://localhost:4200', 'https://4.233.184.106', 'http://4.233.184.106', 'https://wardaropa.github.io'];
   const origin = req.headers.origin;
@@ -36,6 +33,9 @@ app.use((req, res, next) => {
   
   next();
 });
+
+app.use(bodyParser.json({ limit: '20mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 
 app.get('/', (req, res) => {
   res.json({ message: 'Bienvenido a Wardaropa API' });
