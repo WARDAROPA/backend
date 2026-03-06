@@ -11,6 +11,7 @@ const __dirname = path.dirname(__filename);
 
 const app = ExpressWs(express()).app;
 const PORT = 3000;
+const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook/3717090c-f984-499d-b1b7-4820eb32970b';
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -110,7 +111,7 @@ app.post('/login', async (req, res) => {
 });
 
 app.post('/posts', async (req, res) => {
-  const { usuario_id, descripcion, foto } = req.body;
+  const { usuario_id, descripcion, descripcion_prenda, foto } = req.body;
   
   if (!usuario_id || !foto) {
     return res.status(400).json({ error: 'Usuario y foto son obligatorios' });
@@ -118,8 +119,8 @@ app.post('/posts', async (req, res) => {
   
   try {
     const [result] = await pool.query(
-      'INSERT INTO posts (usuario_id, descripcion, foto) VALUES (?, ?, ?)',
-      [usuario_id, descripcion || '', foto]
+      'INSERT INTO posts (usuario_id, descripcion, descripcion_prenda, foto) VALUES (?, ?, ?, ?)',
+      [usuario_id, descripcion || '', descripcion_prenda || '', foto]
     );
     
     res.json({ 
@@ -141,6 +142,7 @@ app.get('/posts', async (req, res) => {
       SELECT 
         p.id,
         p.descripcion,
+        p.descripcion_prenda,
         p.foto,
         p.created_at,
         u.id as usuario_id,
@@ -286,6 +288,7 @@ app.get('/users/:id/posts', async (req, res) => {
       SELECT 
         p.id,
         p.descripcion,
+        p.descripcion_prenda,
         p.foto,
         p.created_at,
         COUNT(DISTINCT l.id) as likes_count,
@@ -302,6 +305,59 @@ app.get('/users/:id/posts', async (req, res) => {
   } catch (error) {
     console.error('Error al obtener posts del usuario:', error);
     res.status(500).json({ error: 'Error al obtener posts del perfil' });
+  }
+});
+
+app.post('/posts/:postId/ia-description', async (req, res) => {
+  const { postId } = req.params;
+  const { usuario_id } = req.body;
+
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio' });
+  }
+
+  const webhookUrl = process.env.N8N_POST_DESCRIPTION_WEBHOOK_URL || DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return res.status(500).json({ error: 'Webhook de n8n no configurado (N8N_POST_DESCRIPTION_WEBHOOK_URL)' });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, usuario_id, descripcion, descripcion_prenda, foto FROM posts WHERE id = ? AND usuario_id = ? LIMIT 1',
+      [postId, usuario_id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Post no encontrado para este usuario' });
+    }
+
+    const post = rows[0];
+
+    const webhookResponse = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        post_id: post.id,
+        usuario_id: post.usuario_id,
+        foto_base64: post.foto,
+        pie_foto: post.descripcion,
+        descripcion_prenda_actual: post.descripcion_prenda || ''
+      })
+    });
+
+    if (!webhookResponse.ok) {
+      return res.status(502).json({ error: 'Error al enviar el webhook a n8n' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Webhook enviado. La descripcion IA se actualizara en breve.'
+    });
+  } catch (error) {
+    console.error('Error al solicitar descripcion IA:', error);
+    res.status(500).json({ error: 'Error al solicitar descripcion IA' });
   }
 });
 

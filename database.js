@@ -11,6 +11,24 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+async function ensureColumnExists(connection, tableName, columnName, definition) {
+  const [rows] = await connection.query(
+    `
+      SELECT 1
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+    `,
+    [tableName, columnName]
+  );
+
+  if (rows.length === 0) {
+    await connection.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+}
+
 export async function initDatabase() {
   try {
     const connection = await pool.getConnection();
@@ -30,11 +48,14 @@ export async function initDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         usuario_id INT NOT NULL,
         descripcion TEXT,
+        descripcion_prenda TEXT,
         foto LONGTEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
       )
     `);
+
+    await ensureColumnExists(connection, 'posts', 'descripcion_prenda', 'TEXT NULL AFTER descripcion');
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS likes (
