@@ -117,6 +117,30 @@ export async function initDatabase() {
         UNIQUE KEY unique_like_noticia (noticia_id, usuario_id)
       )
     `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS outfits (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        usuario_id INT NOT NULL,
+        nombre VARCHAR(120) DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+      )
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS outfit_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        outfit_id INT NOT NULL,
+        post_id INT NOT NULL,
+        slot TINYINT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (outfit_id) REFERENCES outfits(id) ON DELETE CASCADE,
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_outfit_slot (outfit_id, slot),
+        UNIQUE KEY unique_outfit_post (outfit_id, post_id)
+      )
+    `);
     
     connection.release();
     console.log('Base de datos inicializada correctamente');

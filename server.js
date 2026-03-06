@@ -309,6 +309,152 @@ app.get('/users/:id/posts', async (req, res) => {
   }
 });
 
+app.get('/users/:id/outfits', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        o.id,
+        o.nombre,
+        o.created_at,
+        oi.slot,
+        p.id as post_id,
+        p.foto,
+        p.descripcion
+      FROM outfits o
+      LEFT JOIN outfit_items oi ON oi.outfit_id = o.id
+      LEFT JOIN posts p ON p.id = oi.post_id
+      WHERE o.usuario_id = ?
+      ORDER BY o.created_at DESC, oi.slot ASC
+      `,
+      [id]
+    );
+
+    const byOutfit = new Map();
+
+    rows.forEach((row) => {
+      if (!byOutfit.has(row.id)) {
+        byOutfit.set(row.id, {
+          id: row.id,
+          nombre: row.nombre,
+          created_at: row.created_at,
+          prendas: []
+        });
+      }
+
+      if (row.post_id) {
+        byOutfit.get(row.id).prendas.push({
+          slot: row.slot,
+          post_id: row.post_id,
+          foto: row.foto,
+          descripcion: row.descripcion
+        });
+      }
+    });
+
+    const outfits = Array.from(byOutfit.values())
+      .map((outfit) => ({
+        ...outfit,
+        prendas: outfit.prendas.sort((a, b) => a.slot - b.slot)
+      }))
+      .filter((outfit) => outfit.prendas.length === 4);
+
+    res.json({ success: true, outfits });
+  } catch (error) {
+    console.error('Error al obtener outfits:', error);
+    res.status(500).json({ error: 'Error al obtener outfits' });
+  }
+});
+
+app.post('/outfits', async (req, res) => {
+  const { usuario_id, nombre, post_ids } = req.body;
+
+  if (!usuario_id || !Array.isArray(post_ids)) {
+    return res.status(400).json({ error: 'Usuario y post_ids son obligatorios' });
+  }
+
+  const cleanPostIds = [...new Set(post_ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
+  if (cleanPostIds.length !== 4) {
+    return res.status(400).json({ error: 'Debes seleccionar exactamente 4 prendas distintas' });
+  }
+
+  const placeholders = cleanPostIds.map(() => '?').join(',');
+
+  let connection;
+  try {
+    const [ownedPosts] = await pool.query(
+      `SELECT id FROM posts WHERE usuario_id = ? AND id IN (${placeholders})`,
+      [usuario_id, ...cleanPostIds]
+    );
+
+    if (ownedPosts.length !== 4) {
+      return res.status(400).json({ error: 'Solo puedes crear outfits con prendas de tu armario' });
+    }
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    const [outfitResult] = await connection.query(
+      'INSERT INTO outfits (usuario_id, nombre) VALUES (?, ?)',
+      [usuario_id, (nombre || '').trim() || null]
+    );
+
+    const outfitId = outfitResult.insertId;
+
+    for (let i = 0; i < cleanPostIds.length; i++) {
+      await connection.query(
+        'INSERT INTO outfit_items (outfit_id, post_id, slot) VALUES (?, ?, ?)',
+        [outfitId, cleanPostIds[i], i + 1]
+      );
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: 'Outfit creado correctamente',
+      outfitId
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+    console.error('Error al crear outfit:', error);
+    res.status(500).json({ error: 'Error al crear outfit' });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+app.delete('/outfits/:outfitId', async (req, res) => {
+  const { outfitId } = req.params;
+  const { usuario_id } = req.body;
+
+  if (!usuario_id) {
+    return res.status(400).json({ error: 'Usuario es obligatorio para borrar outfit' });
+  }
+
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM outfits WHERE id = ? AND usuario_id = ?',
+      [outfitId, usuario_id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(403).json({ error: 'No autorizado o el outfit no existe' });
+    }
+
+    res.json({ success: true, message: 'Outfit borrado correctamente' });
+  } catch (error) {
+    console.error('Error al borrar outfit:', error);
+    res.status(500).json({ error: 'Error al borrar outfit' });
+  }
+});
+
 app.post('/posts/:postId/ia-description', async (req, res) => {
   const { postId } = req.params;
   const { usuario_id } = req.body;
