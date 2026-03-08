@@ -4,15 +4,38 @@ import bodyParser from 'body-parser';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
 import pool, { initDatabase } from './database.js';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = ExpressWs(express()).app;
-const PORT = 3000;
-const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook/3717090c-f984-499d-b1b7-4820eb32970b';
-const DEFAULT_N8N_POST_MATCH_WEBHOOK_URL = 'https://sql3.srv869945.hstgr.cloud/webhook/3717090c-f984-499d-b1b7-4820eb32970b';
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_key';
+const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = process.env.N8N_POST_DESCRIPTION_WEBHOOK_URL || '';
+const DEFAULT_N8N_POST_MATCH_WEBHOOK_URL = process.env.N8N_POST_MATCH_WEBHOOK_URL || '';
+
+// Middleware de autenticación JWT
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Token de autenticación requerido' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ error: 'Token inválido o expirado' });
+    }
+    req.user = decoded;
+    next();
+  });
+}
 
 app.use((req, res, next) => {
   const allowedOrigins = ['http://localhost:4200', 'https://4.233.184.106', 'http://4.233.184.106', 'https://wardaropa.github.io'];
@@ -24,7 +47,7 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
   }
   
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Credentials', 'true');
   
@@ -96,9 +119,16 @@ app.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
     
+    const token = jwt.sign(
+      { id: user.id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     res.json({ 
       success: true, 
       message: 'Login exitoso',
+      token,
       user: {
         id: user.id,
         username: user.username,
@@ -111,11 +141,12 @@ app.post('/login', async (req, res) => {
   }
 });
 
-app.post('/posts', async (req, res) => {
-  const { usuario_id, descripcion, descripcion_prenda, foto } = req.body;
+app.post('/posts', authenticateToken, async (req, res) => {
+  const usuario_id = req.user.id;
+  const { descripcion, descripcion_prenda, foto } = req.body;
   
-  if (!usuario_id || !foto) {
-    return res.status(400).json({ error: 'Usuario y foto son obligatorios' });
+  if (!foto) {
+    return res.status(400).json({ error: 'Foto es obligatoria' });
   }
   
   try {
@@ -166,13 +197,9 @@ app.get('/posts', async (req, res) => {
   }
 });
 
-app.post('/posts/:postId/like', async (req, res) => {
+app.post('/posts/:postId/like', authenticateToken, async (req, res) => {
   const { postId } = req.params;
-  const { usuario_id } = req.body;
-  
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio' });
-  }
+  const usuario_id = req.user.id;
   
   try {
     await pool.query(
@@ -191,13 +218,9 @@ app.post('/posts/:postId/like', async (req, res) => {
   }
 });
 
-app.delete('/posts/:postId/like', async (req, res) => {
+app.delete('/posts/:postId/like', authenticateToken, async (req, res) => {
   const { postId } = req.params;
-  const { usuario_id } = req.body;
-  
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio' });
-  }
+  const usuario_id = req.user.id;
   
   try {
     await pool.query(
@@ -212,12 +235,13 @@ app.delete('/posts/:postId/like', async (req, res) => {
   }
 });
 
-app.post('/posts/:postId/comments', async (req, res) => {
+app.post('/posts/:postId/comments', authenticateToken, async (req, res) => {
   const { postId } = req.params;
-  const { usuario_id, texto } = req.body;
+  const usuario_id = req.user.id;
+  const { texto } = req.body;
   
-  if (!usuario_id || !texto) {
-    return res.status(400).json({ error: 'Usuario y texto son obligatorios' });
+  if (!texto) {
+    return res.status(400).json({ error: 'Texto es obligatorio' });
   }
   
   try {
@@ -368,11 +392,12 @@ app.get('/users/:id/outfits', async (req, res) => {
   }
 });
 
-app.post('/outfits', async (req, res) => {
-  const { usuario_id, nombre, post_ids } = req.body;
+app.post('/outfits', authenticateToken, async (req, res) => {
+  const usuario_id = req.user.id;
+  const { nombre, post_ids } = req.body;
 
-  if (!usuario_id || !Array.isArray(post_ids)) {
-    return res.status(400).json({ error: 'Usuario y post_ids son obligatorios' });
+  if (!Array.isArray(post_ids)) {
+    return res.status(400).json({ error: 'post_ids es obligatorio' });
   }
 
   const cleanPostIds = [...new Set(post_ids.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))];
@@ -430,13 +455,9 @@ app.post('/outfits', async (req, res) => {
   }
 });
 
-app.delete('/outfits/:outfitId', async (req, res) => {
+app.delete('/outfits/:outfitId', authenticateToken, async (req, res) => {
   const { outfitId } = req.params;
-  const { usuario_id } = req.body;
-
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio para borrar outfit' });
-  }
+  const usuario_id = req.user.id;
 
   try {
     const [result] = await pool.query(
@@ -455,13 +476,9 @@ app.delete('/outfits/:outfitId', async (req, res) => {
   }
 });
 
-app.post('/posts/:postId/ia-description', async (req, res) => {
+app.post('/posts/:postId/ia-description', authenticateToken, async (req, res) => {
   const { postId } = req.params;
-  const { usuario_id } = req.body;
-
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio' });
-  }
+  const usuario_id = req.user.id;
 
   const webhookUrl = process.env.N8N_POST_DESCRIPTION_WEBHOOK_URL || DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -508,13 +525,9 @@ app.post('/posts/:postId/ia-description', async (req, res) => {
   }
 });
 
-app.post('/posts/:postId/match', async (req, res) => {
+app.post('/posts/:postId/match', authenticateToken, async (req, res) => {
   const { postId } = req.params;
-  const { usuario_id } = req.body;
-
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio' });
-  }
+  const usuario_id = req.user.id;
 
   const webhookUrl = process.env.N8N_POST_MATCH_WEBHOOK_URL || DEFAULT_N8N_POST_MATCH_WEBHOOK_URL;
   if (!webhookUrl) {
@@ -599,13 +612,9 @@ app.post('/posts/:postId/match', async (req, res) => {
 });
 
 
-app.delete('/posts/:postId', async (req, res) => {
+app.delete('/posts/:postId', authenticateToken, async (req, res) => {
   const { postId } = req.params;
-  const { usuario_id } = req.body; 
-  
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio para borrar' });
-  }
+  const usuario_id = req.user.id;
   
   try {
     await pool.query('DELETE FROM likes WHERE post_id = ?', [postId]);
@@ -725,15 +734,16 @@ app.get('/noticias/:id', async (req, res) => {
 });
 
 // Crear noticia (usuario)
-app.post('/noticias', async (req, res) => {
-  const { usuario_id, titulo, texto, imagen } = req.body;
+app.post('/noticias', authenticateToken, async (req, res) => {
+  const usuario_id = req.user.id;
+  const { titulo, texto, imagen } = req.body;
 
   if (!titulo || !texto) {
     return res.status(400).json({ error: 'Título y texto son obligatorios' });
   }
 
   try {
-    const fuente = usuario_id ? 'usuario' : 'n8n';
+    const fuente = 'usuario';
     const [result] = await pool.query(
       'INSERT INTO noticias (usuario_id, titulo, texto, imagen, fuente) VALUES (?, ?, ?, ?, ?)',
       [usuario_id || null, titulo, texto, imagen || null, fuente]
@@ -751,9 +761,9 @@ app.post('/noticias', async (req, res) => {
 });
 
 // Eliminar noticia
-app.delete('/noticias/:id', async (req, res) => {
+app.delete('/noticias/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { usuario_id } = req.body;
+  const usuario_id = req.user.id;
 
   try {
     const [result] = await pool.query(
@@ -773,13 +783,9 @@ app.delete('/noticias/:id', async (req, res) => {
 });
 
 // Like noticia
-app.post('/noticias/:id/like', async (req, res) => {
+app.post('/noticias/:id/like', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { usuario_id } = req.body;
-
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio' });
-  }
+  const usuario_id = req.user.id;
 
   try {
     await pool.query(
@@ -798,13 +804,9 @@ app.post('/noticias/:id/like', async (req, res) => {
 });
 
 // Unlike noticia
-app.delete('/noticias/:id/like', async (req, res) => {
+app.delete('/noticias/:id/like', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { usuario_id } = req.body;
-
-  if (!usuario_id) {
-    return res.status(400).json({ error: 'Usuario es obligatorio' });
-  }
+  const usuario_id = req.user.id;
 
   try {
     await pool.query(
@@ -844,12 +846,13 @@ app.get('/noticias/:id/comments', async (req, res) => {
 });
 
 // Crear comentario en noticia
-app.post('/noticias/:id/comments', async (req, res) => {
+app.post('/noticias/:id/comments', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { usuario_id, texto } = req.body;
+  const usuario_id = req.user.id;
+  const { texto } = req.body;
 
-  if (!usuario_id || !texto) {
-    return res.status(400).json({ error: 'Usuario y texto son obligatorios' });
+  if (!texto) {
+    return res.status(400).json({ error: 'Texto es obligatorio' });
   }
 
   try {
