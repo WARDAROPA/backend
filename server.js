@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_key';
 const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = process.env.N8N_POST_DESCRIPTION_WEBHOOK_URL || '';
 const DEFAULT_N8N_POST_MATCH_WEBHOOK_URL = process.env.N8N_POST_MATCH_WEBHOOK_URL || '';
+const DEFAULT_N8N_OUTFIT_WEBHOOK_URL = process.env.N8N_OUTFIT_WEBHOOK_URL || '';
 
 // Middleware de autenticación JWT
 function authenticateToken(req, res, next) {
@@ -473,6 +474,155 @@ app.delete('/outfits/:outfitId', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error al borrar outfit:', error);
     res.status(500).json({ error: 'Error al borrar outfit' });
+  }
+});
+
+app.post('/outfits/ia-generate', authenticateToken, async (req, res) => {
+  const usuario_id = req.user.id;
+  const { prompt } = req.body;
+
+  if (!prompt || !String(prompt).trim()) {
+    return res.status(400).json({ error: 'El prompt es obligatorio para generar outfit con IA' });
+  }
+
+  const webhookUrl = process.env.N8N_OUTFIT_WEBHOOK_URL || DEFAULT_N8N_OUTFIT_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return res.status(500).json({ error: 'Webhook de outfit IA no configurado (N8N_OUTFIT_WEBHOOK_URL)' });
+  }
+
+  try {
+    const [wardrobeRows] = await pool.query(
+      `
+      SELECT id, descripcion, descripcion_prenda, created_at
+      FROM posts
+      WHERE usuario_id = ?
+      ORDER BY created_at DESC
+      LIMIT 80
+      `,
+      [usuario_id]
+    );
+
+    if (wardrobeRows.length < 4) {
+      return res.status(400).json({ error: 'Necesitas al menos 4 prendas en tu armario para generar un outfit' });
+    }
+
+    const webhookResponse = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        usuario_id,
+        prompt: String(prompt).trim(),
+        wardrobe_items: wardrobeRows.map((row) => ({
+          post_id: row.id,
+          pie_foto: row.descripcion || '',
+          descripcion_prenda: row.descripcion_prenda || '',
+          created_at: row.created_at
+        }))
+      })
+    });
+
+    const rawResponse = await webhookResponse.text();
+    let parsedResponse = {};
+    try {
+      parsedResponse = rawResponse ? JSON.parse(rawResponse) : {};
+    } catch {
+      parsedResponse = {};
+    }
+
+    if (!webhookResponse.ok) {
+      return res.status(502).json({
+        error: 'Error al solicitar outfit IA en n8n',
+        n8n_status: webhookResponse.status,
+        n8n_response: rawResponse
+      });
+    }
+
+    const responseIds = parsedResponse.post_ids
+      ?? parsedResponse.selected_post_ids
+      ?? parsedResponse.postIds
+      ?? parsedResponse.ids
+      ?? [];
+
+    const cleanPostIds = [...new Set(
+      (Array.isArray(responseIds) ? responseIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )];
+
+    if (cleanPostIds.length !== 4) {
+      return res.status(422).json({
+        error: 'La IA no devolvio exactamente 4 post_ids validos',
+        n8n_response: rawResponse
+      });
+    }
+
+    const placeholders = cleanPostIds.map(() => '?').join(',');
+    const [ownedPosts] = await pool.query(
+      `SELECT id FROM posts WHERE usuario_id = ? AND id IN (${placeholders})`,
+      [usuario_id, ...cleanPostIds]
+    );
+
+    if (ownedPosts.length !== 4) {
+      return res.status(400).json({ error: 'La IA selecciono prendas fuera de tu armario' });
+    }
+
+    const nombreSugerido = String(
+      parsedResponse.nombre
+      ?? parsedResponse.nombre_outfit
+      ?? parsedResponse.outfit_name
+      ?? `Outfit IA: ${String(prompt).trim().slice(0, 60)}`
+    ).trim().slice(0, 120);
+
+    let connection;
+    try {
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+
+      const [outfitResult] = await connection.query(
+        'INSERT INTO outfits (usuario_id, nombre) VALUES (?, ?)',
+        [usuario_id, nombreSugerido || null]
+      );
+
+      const outfitId = outfitResult.insertId;
+
+      for (let i = 0; i < cleanPostIds.length; i++) {
+        await connection.query(
+          'INSERT INTO outfit_items (outfit_id, post_id, slot) VALUES (?, ?, ?)',
+          [outfitId, cleanPostIds[i], i + 1]
+        );
+      }
+
+      await connection.commit();
+
+      res.json({
+        success: true,
+        message: 'Outfit IA generado correctamente',
+        outfitId,
+        post_ids: cleanPostIds,
+        nombre: nombreSugerido,
+        descripcion: String(
+          parsedResponse.descripcion
+          ?? parsedResponse.explicacion
+          ?? parsedResponse.reasoning
+          ?? parsedResponse.texto
+          ?? ''
+        ).trim()
+      });
+    } catch (error) {
+      if (connection) {
+        await connection.rollback();
+      }
+      throw error;
+    } finally {
+      if (connection) {
+        connection.release();
+      }
+    }
+  } catch (error) {
+    console.error('Error al generar outfit IA:', error);
+    res.status(500).json({ error: 'Error al generar outfit IA' });
   }
 });
 
