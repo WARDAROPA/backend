@@ -170,19 +170,24 @@ app.post('/posts', authenticateToken, async (req, res) => {
 app.get('/posts', async (req, res) => {
   const { usuario_id } = req.query;
   const parsedLimit = Number(req.query.limit);
+  const parsedOffset = Number(req.query.offset);
   const limit = Number.isInteger(parsedLimit) && parsedLimit > 0
     ? Math.min(parsedLimit, 30)
     : 12;
+  const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0
+    ? parsedOffset
+    : 0;
+  const queryLimit = limit + 1;
   
   try {
-    const baseParams = [limit];
+    const baseParams = [queryLimit, offset];
     const userLikedJoin = usuario_id
       ? 'LEFT JOIN likes ul ON ul.post_id = p.id AND ul.usuario_id = ?'
       : '';
     const userLikedSelect = usuario_id
       ? 'CASE WHEN ul.post_id IS NULL THEN 0 ELSE 1 END as user_liked'
       : '0 as user_liked';
-    const params = usuario_id ? [limit, Number(usuario_id)] : baseParams;
+    const params = usuario_id ? [queryLimit, offset, Number(usuario_id)] : baseParams;
 
     const [posts] = await pool.query(
       `
@@ -201,7 +206,7 @@ app.get('/posts', async (req, res) => {
         SELECT id, usuario_id, descripcion, descripcion_prenda, foto, created_at
         FROM posts
         ORDER BY created_at DESC
-        LIMIT ?
+        LIMIT ? OFFSET ?
       ) p
       INNER JOIN usuarios u ON p.usuario_id = u.id
       LEFT JOIN (
@@ -219,8 +224,11 @@ app.get('/posts', async (req, res) => {
       `,
       params
     );
+
+    const hasMore = posts.length > limit;
+    const slicedPosts = hasMore ? posts.slice(0, limit) : posts;
     
-    res.json({ success: true, posts });
+    res.json({ success: true, posts: slicedPosts, hasMore });
   } catch (error) {
     console.error('Error al obtener posts:', error);
     res.status(500).json({ error: 'Error al obtener posts' });
