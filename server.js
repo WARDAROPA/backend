@@ -169,10 +169,24 @@ app.post('/posts', authenticateToken, async (req, res) => {
 
 app.get('/posts', async (req, res) => {
   const { usuario_id } = req.query;
+  const parsedLimit = Number(req.query.limit);
+  const limit = Number.isInteger(parsedLimit) && parsedLimit > 0
+    ? Math.min(parsedLimit, 30)
+    : 12;
   
   try {
-    const [posts] = await pool.query(`
-      SELECT 
+    const baseParams = [limit];
+    const userLikedJoin = usuario_id
+      ? 'LEFT JOIN likes ul ON ul.post_id = p.id AND ul.usuario_id = ?'
+      : '';
+    const userLikedSelect = usuario_id
+      ? 'CASE WHEN ul.post_id IS NULL THEN 0 ELSE 1 END as user_liked'
+      : '0 as user_liked';
+    const params = usuario_id ? [limit, Number(usuario_id)] : baseParams;
+
+    const [posts] = await pool.query(
+      `
+      SELECT
         p.id,
         p.descripcion,
         p.descripcion_prenda,
@@ -180,16 +194,31 @@ app.get('/posts', async (req, res) => {
         p.created_at,
         u.id as usuario_id,
         u.username,
-        COUNT(DISTINCT l.id) as likes_count,
-        COUNT(DISTINCT c.id) as comments_count,
-        ${usuario_id ? `MAX(CASE WHEN l.usuario_id = ? THEN 1 ELSE 0 END) as user_liked` : '0 as user_liked'}
-      FROM posts p
+        COALESCE(l.likes_count, 0) as likes_count,
+        COALESCE(c.comments_count, 0) as comments_count,
+        ${userLikedSelect}
+      FROM (
+        SELECT id, usuario_id, descripcion, descripcion_prenda, foto, created_at
+        FROM posts
+        ORDER BY created_at DESC
+        LIMIT ?
+      ) p
       INNER JOIN usuarios u ON p.usuario_id = u.id
-      LEFT JOIN likes l ON p.id = l.post_id
-      LEFT JOIN comentarios c ON p.id = c.post_id
-      GROUP BY p.id
+      LEFT JOIN (
+        SELECT post_id, COUNT(*) as likes_count
+        FROM likes
+        GROUP BY post_id
+      ) l ON l.post_id = p.id
+      LEFT JOIN (
+        SELECT post_id, COUNT(*) as comments_count
+        FROM comentarios
+        GROUP BY post_id
+      ) c ON c.post_id = p.id
+      ${userLikedJoin}
       ORDER BY p.created_at DESC
-    `, usuario_id ? [usuario_id] : []);
+      `,
+      params
+    );
     
     res.json({ success: true, posts });
   } catch (error) {
