@@ -195,7 +195,6 @@ app.get('/posts', async (req, res) => {
         p.id,
         p.descripcion,
         p.descripcion_prenda,
-        p.foto,
         p.created_at,
         u.id as usuario_id,
         u.username,
@@ -203,7 +202,7 @@ app.get('/posts', async (req, res) => {
         COALESCE(c.comments_count, 0) as comments_count,
         ${userLikedSelect}
       FROM (
-        SELECT id, usuario_id, descripcion, descripcion_prenda, foto, created_at
+        SELECT id, usuario_id, descripcion, descripcion_prenda, created_at
         FROM posts
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
@@ -352,7 +351,6 @@ app.get('/users/:id/posts', async (req, res) => {
         p.id,
         p.descripcion,
         p.descripcion_prenda,
-        p.foto,
         p.created_at,
         COUNT(DISTINCT l.id) as likes_count,
         COUNT(DISTINCT c.id) as comments_count
@@ -383,7 +381,6 @@ app.get('/users/:id/outfits', async (req, res) => {
         o.created_at,
         oi.slot,
         p.id as post_id,
-        p.foto,
         p.descripcion
       FROM outfits o
       LEFT JOIN outfit_items oi ON oi.outfit_id = o.id
@@ -410,7 +407,6 @@ app.get('/users/:id/outfits', async (req, res) => {
         byOutfit.get(row.id).prendas.push({
           slot: row.slot,
           post_id: row.post_id,
-          foto: row.foto,
           descripcion: row.descripcion
         });
       }
@@ -798,6 +794,26 @@ app.post('/posts/:postId/match', authenticateToken, async (req, res) => {
   }
 });
 
+
+app.get('/posts/:postId/photo', async (req, res) => {
+  const { postId } = req.params;
+  
+  try {
+    const [rows] = await pool.query(
+      'SELECT foto FROM posts WHERE id = ? LIMIT 1',
+      [postId]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Post no encontrado' });
+    }
+    
+    res.json({ success: true, foto: rows[0].foto });
+  } catch (error) {
+    console.error('Error al obtener foto:', error);
+    res.status(500).json({ error: 'Error al obtener foto' });
+  }
+});
 
 app.delete('/posts/:postId', authenticateToken, async (req, res) => {
   const { postId } = req.params;

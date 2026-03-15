@@ -1,97 +1,43 @@
 {
+  "name": "Wardaropa - Outfit Recommendation IA",
   "nodes": [
     {
       "parameters": {
-        "jsCode": "const usuario_id = $json.body.usuario_id;\nconst prompt = ($json.body.prompt || '').trim();\nconst wardrobeItems = $json.body.wardrobe_items || [];\n\nif (!usuario_id || !prompt) {\n  throw new Error('Faltan campos: usuario_id y prompt son requeridos');\n}\n\nif (!Array.isArray(wardrobeItems) || wardrobeItems.length < 4) {\n  throw new Error('Se necesitan al menos 4 prendas en el armario. Recibidas: ' + wardrobeItems.length);\n}\n\n// CORRECCIÓN: Eliminamos el índice y dejamos exclusivamente el post_id\nconst wardrobeText = wardrobeItems.map((item) => {\n  return `ID Prenda: ${item.post_id}\\n  - Pie de foto: ${item.pie_foto || 'Sin descripción'}\\n  - Descripción: ${item.descripcion_prenda || 'Sin detalles'}`;\n}).join('\\n\\n');\n\nconst promptCompleto = `Eres un estilista profesional experto en moda. Tu tarea es seleccionar EXACTAMENTE 4 prendas del armario del usuario para crear un outfit coherente y atractivo.\n\nPROMPT DEL USUARIO:\n\"${prompt}\"\n\nARMARIO DISPONIBLE (${wardrobeItems.length} prendas):\n${wardrobeText}\n\nINSTRUCCIONES:\n1. Analiza el prompt del usuario y el armario disponible\n2. Selecciona EXACTAMENTE 4 prendas que combinen bien entre sí\n3. Las prendas deben formar un outfit completo (ej: top, bottom, zapatos, accesorio/capa)\n4. Considera colores, estilos y ocasión de uso\n5. Genera un nombre creativo y atractivo para el outfit (máximo 120 caracteres)\n6. Explica brevemente por qué elegiste estas prendas\n\nRESPONDE ÚNICAMENTE EN FORMATO JSON:\n{\n  \"post_ids\": [id1, id2, id3, id4],\n  \"nombre\": \"Nombre del outfit\",\n  \"descripcion\": \"Explicación de por qué estas prendas combinan bien\"\n}\n\nMUY IMPORTANTE: Los post_ids deben ser EXACTAMENTE 4 números enteros de las prendas listadas arriba. Tienes que coger el post id`;\n\nreturn {\n  usuario_id: usuario_id,\n  prompt_usuario: prompt,\n  prompt_completo: promptCompleto,\n  total_prendas: wardrobeItems.length,\n  wardrobe_items: wardrobeItems\n};"
+        "httpMethod": "POST",
+        "path": "outfit-recommendation-ia",
+        "responseMode": "lastNode",
+        "options": {}
       },
-      "id": "d31b246c-d403-4942-a62e-55fe56ab44bd",
-      "name": "Preparar Prompt IA1",
-      "type": "n8n-nodes-base.code",
+      "id": "c5f8f2c0-a9f1-4a2b-8d53-245a922aa111",
+      "name": "Webhook Outfit IA",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [
-        592,
-        320
+        -520,
+        20
       ],
-      "notes": "Construye el prompt completo para Gemini con el armario del usuario"
+      "webhookId": "wardaropa-outfit-recommendation-ia"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=GEMIINKEY",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ \n  contents: [{ \n    parts: [{ text: $json.prompt_completo }] \n  }],\n  generationConfig: { \n    temperature: 0.7, \n    topP: 0.9, \n    maxOutputTokens: 2048 \n  } \n}) }}",
-        "options": {
-          "timeout": 30000
-        }
+        "jsCode": "const input = $json.body || $json;\nconst prompt = String(input.prompt || '').trim();\nconst items = Array.isArray(input.wardrobe_items) ? input.wardrobe_items : [];\n\nif (!prompt) {\n  return [{\n    json: {\n      post_ids: [],\n      nombre_outfit: '',\n      descripcion: 'Prompt vacio'\n    }\n  }];\n}\n\nif (items.length < 4) {\n  return [{\n    json: {\n      post_ids: [],\n      nombre_outfit: '',\n      descripcion: 'No hay suficientes prendas en el armario'\n    }\n  }];\n}\n\nconst normalizedPrompt = prompt.toLowerCase();\n\nconst keywordGroups = [\n  { tags: ['navidad', 'cena', 'fiesta', 'noche', 'evento'], weight: 3 },\n  { tags: ['elegante', 'formal', 'sofisticado', 'traje', 'blazer', 'vestido'], weight: 3 },\n  { tags: ['casual', 'diario', 'streetwear', 'urbano', 'comodo'], weight: 2 },\n  { tags: ['invierno', 'frio', 'abrigado', 'lana', 'chaqueta', 'abrigo'], weight: 2 },\n  { tags: ['verano', 'calor', 'fresco', 'ligero', 'lino', 'short'], weight: 2 },\n  { tags: ['deportivo', 'gym', 'running', 'entreno'], weight: 2 },\n  { tags: ['romantico', 'cita', 'date'], weight: 2 },\n  { tags: ['trabajo', 'oficina', 'business'], weight: 2 }\n];\n\nfunction scoreItem(item) {\n  const text = `${item.pie_foto || ''} ${item.descripcion_prenda || ''}`.toLowerCase();\n  let score = 0;\n\n  for (const group of keywordGroups) {\n    const promptHasGroup = group.tags.some((tag) => normalizedPrompt.includes(tag));\n    if (!promptHasGroup) continue;\n\n    const matches = group.tags.filter((tag) => text.includes(tag)).length;\n    score += matches * group.weight;\n  }\n\n  // Bonus por riqueza descriptiva para favorecer prendas mejor descritas\n  if ((item.descripcion_prenda || '').length > 40) score += 1;\n\n  return score;\n}\n\nconst ranked = items\n  .map((item) => ({ ...item, _score: scoreItem(item) }))\n  .sort((a, b) => b._score - a._score);\n\n// Si todo da 0, elegimos las mas recientes como fallback\nconst allZero = ranked.every((item) => item._score === 0);\nconst selected = (allZero ? items : ranked).slice(0, 4);\n\nconst postIds = selected\n  .map((item) => Number(item.post_id))\n  .filter((id) => Number.isInteger(id) && id > 0)\n  .slice(0, 4);\n\nconst nombre = `Outfit IA: ${prompt}`.slice(0, 120);\nconst descripcion = allZero\n  ? 'No habia coincidencias claras por texto; se eligieron prendas recientes del armario.'\n  : `Seleccion basada en el prompt: ${prompt}.`;\n\nreturn [{\n  json: {\n    post_ids: postIds,\n    nombre_outfit: nombre,\n    descripcion\n  }\n}];"
       },
-      "id": "bc7cc80f-ea5d-4720-88dc-8220e26fd2cf",
-      "name": "Gemini - Seleccionar Outfit1",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        832,
-        320
-      ],
-      "notes": "Llama a Gemini para que seleccione las 4 prendas ideales"
-    },
-    {
-      "parameters": {
-        "jsCode": "const item = $input.first();\n\n// Recuperamos el usuario_id del nodo inicial de forma segura\nconst datosIniciales = $('Preparar Prompt IA1').first().json;\n\nlet responseText = '';\ntry {\n  responseText = item.json.candidates[0].content.parts[0].text;\n} catch (error) {\n  throw new Error('No se pudo extraer respuesta de Gemini: ' + error.message);\n}\n\n// Buscamos el bloque JSON dentro de la respuesta de texto\nlet jsonMatch = responseText.match(/\\{[\\s\\S]*\\}/);\nif (!jsonMatch) {\n  throw new Error('No se encontró JSON en la respuesta de Gemini. Respuesta: ' + responseText);\n}\n\nlet parsedOutfit;\ntry {\n  parsedOutfit = JSON.parse(jsonMatch[0]);\n} catch (error) {\n  throw new Error('Error al parsear JSON de Gemini: ' + error.message);\n}\n\n// Extraemos los IDs y nos aseguramos de que sean números\nconst postIds = parsedOutfit.post_ids || parsedOutfit.selected_post_ids || parsedOutfit.ids || [];\nconst cleanPostIds = postIds.map(id => Number(id)).filter(id => Number.isInteger(id) && id > 0);\n\nconst nombre = String(parsedOutfit.nombre || parsedOutfit.nombre_outfit || parsedOutfit.outfit_name || 'Outfit IA').trim().slice(0, 120);\nconst descripcion = String(parsedOutfit.descripcion || parsedOutfit.explicacion || parsedOutfit.description || '').trim();\n\nreturn [{\n  json: {\n    post_ids: cleanPostIds,\n    nombre: nombre,\n    descripcion: descripcion,\n    usuario_id: datosIniciales.usuario_id\n  }\n}];"
-      },
-      "id": "8e62da9f-63d7-40b5-96e2-d542a559459c",
-      "name": "Validar y Parsear Respuesta1",
+      "id": "f1e2c2a7-17fb-4d99-9f4d-cfe9d8eb2222",
+      "name": "Seleccionar 4 prendas",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1072,
-        320
-      ],
-      "notes": "Extrae y valida los 4 post_ids seleccionados"
-    },
-    {
-      "parameters": {
-        "jsCode": "const item = $input.first();\n\nconsole.log('✅ Outfit IA generado exitosamente');\nconsole.log(`Usuario ID: ${item.json.usuario_id}`);\nconsole.log(`Nombre: ${item.json.nombre}`);\nconsole.log(`Prendas seleccionadas: ${item.json.post_ids.join(', ')}`);\nconsole.log(`Descripción: ${item.json.descripcion}`);\n\nreturn [item];"
-      },
-      "id": "922bf937-c573-46ec-909a-031d1e512295",
-      "name": "Log Resultado1",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1312,
-        320
-      ],
-      "notes": "Registra el outfit generado en logs de n8n"
+        -180,
+        20
+      ]
     }
   ],
   "connections": {
-    "Preparar Prompt IA1": {
+    "Webhook Outfit IA": {
       "main": [
         [
           {
-            "node": "Gemini - Seleccionar Outfit1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Gemini - Seleccionar Outfit1": {
-      "main": [
-        [
-          {
-            "node": "Validar y Parsear Respuesta1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Validar y Parsear Respuesta1": {
-      "main": [
-        [
-          {
-            "node": "Log Resultado1",
+            "node": "Seleccionar 4 prendas",
             "type": "main",
             "index": 0
           }
@@ -99,9 +45,13 @@
       ]
     }
   },
-  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "fced2c35-5ba6-4125-9be3-2df8038d4444",
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "f2d976ac820a993756afa7a65a73c4005d7455fac46d1ab6b9794f31dd00df0b"
-  }
+    "instanceId": "wardaropa-local"
+  },
+  "id": "wardaropa-outfit-recommendation-ia"
 }
