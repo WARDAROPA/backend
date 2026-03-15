@@ -19,6 +19,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_key';
 const DEFAULT_N8N_POST_DESCRIPTION_WEBHOOK_URL = process.env.N8N_POST_DESCRIPTION_WEBHOOK_URL || '';
 const DEFAULT_N8N_POST_MATCH_WEBHOOK_URL = process.env.N8N_POST_MATCH_WEBHOOK_URL || '';
 const DEFAULT_N8N_OUTFIT_WEBHOOK_URL = process.env.N8N_OUTFIT_WEBHOOK_URL || '';
+const DEFAULT_N8N_OUTFIT_TRYON_WEBHOOK_URL = process.env.N8N_OUTFIT_TRYON_WEBHOOK_URL || '';
 
 // Middleware de autenticación JWT
 function authenticateToken(req, res, next) {
@@ -656,6 +657,116 @@ app.post('/outfits/ia-generate', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error al generar outfit IA:', error);
     res.status(500).json({ error: 'Error al generar outfit IA' });
+  }
+});
+
+app.post('/outfits/:outfitId/try-on', authenticateToken, async (req, res) => {
+  const { outfitId } = req.params;
+  const usuario_id = req.user.id;
+  const { foto_usuario } = req.body;
+
+  if (!foto_usuario || !String(foto_usuario).trim()) {
+    return res.status(400).json({ error: 'Debes subir una foto de cuerpo entero para probar el outfit' });
+  }
+
+  const webhookUrl = process.env.N8N_OUTFIT_TRYON_WEBHOOK_URL || DEFAULT_N8N_OUTFIT_TRYON_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return res.status(500).json({ error: 'Webhook de try-on no configurado (N8N_OUTFIT_TRYON_WEBHOOK_URL)' });
+  }
+
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        o.id as outfit_id,
+        o.nombre as outfit_nombre,
+        oi.slot,
+        p.id as post_id,
+        p.foto,
+        p.descripcion,
+        p.descripcion_prenda
+      FROM outfits o
+      INNER JOIN outfit_items oi ON oi.outfit_id = o.id
+      INNER JOIN posts p ON p.id = oi.post_id
+      WHERE o.id = ? AND o.usuario_id = ?
+      ORDER BY oi.slot ASC
+      `,
+      [outfitId, usuario_id]
+    );
+
+    if (rows.length !== 4) {
+      return res.status(404).json({ error: 'Outfit no encontrado o incompleto para este usuario' });
+    }
+
+    const webhookResponse = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        usuario_id,
+        outfit_id: Number(outfitId),
+        outfit_nombre: rows[0].outfit_nombre || '',
+        foto_usuario_base64: String(foto_usuario),
+        outfit_items: rows.map((row) => ({
+          slot: row.slot,
+          post_id: row.post_id,
+          foto_prenda_base64: row.foto || '',
+          pie_foto: row.descripcion || '',
+          descripcion_prenda: row.descripcion_prenda || ''
+        }))
+      })
+    });
+
+    const rawResponse = await webhookResponse.text();
+    let parsedResponse = {};
+    try {
+      parsedResponse = rawResponse ? JSON.parse(rawResponse) : {};
+    } catch {
+      parsedResponse = {};
+    }
+
+    if (!webhookResponse.ok) {
+      return res.status(502).json({
+        error: 'Error al generar prueba de outfit en n8n',
+        n8n_status: webhookResponse.status,
+        n8n_response: rawResponse
+      });
+    }
+
+    const resultImage = String(
+      parsedResponse.result_image_base64
+      ?? parsedResponse.imagen_resultado
+      ?? parsedResponse.output_image_base64
+      ?? parsedResponse.image_base64
+      ?? parsedResponse.image
+      ?? ''
+    ).trim();
+
+    if (!resultImage) {
+      return res.status(422).json({
+        error: 'n8n no devolvio una imagen de resultado',
+        n8n_response: rawResponse
+      });
+    }
+
+    const normalizedImage = resultImage.startsWith('data:')
+      ? resultImage
+      : `data:image/png;base64,${resultImage}`;
+
+    res.json({
+      success: true,
+      imagen_resultado: normalizedImage,
+      descripcion: String(
+        parsedResponse.descripcion
+        ?? parsedResponse.explicacion
+        ?? parsedResponse.texto
+        ?? 'Previsualizacion de outfit generada correctamente.'
+      ).trim()
+    });
+  } catch (error) {
+    console.error('Error al probar outfit:', error);
+    res.status(500).json({ error: 'Error al probar outfit con IA' });
   }
 });
 
