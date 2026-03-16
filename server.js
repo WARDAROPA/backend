@@ -458,6 +458,111 @@ app.get('/users/:id/outfits', async (req, res) => {
   }
 });
 
+// Buscar usuarios
+app.get('/users/search', async (req, res) => {
+  const { q } = req.query;
+  
+  if (!q || q.trim().length < 2) {
+    return res.status(400).json({ error: 'La búsqueda debe tener al menos 2 caracteres' });
+  }
+  
+  try {
+    const [users] = await pool.query(
+      'SELECT id, username, email FROM usuarios WHERE username LIKE ? OR email LIKE ? LIMIT 20',
+      [`%${q}%`, `%${q}%`]
+    );
+    
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Error al buscar usuarios:', error);
+    res.status(500).json({ error: 'Error al buscar usuarios' });
+  }
+});
+
+// Seguir a un usuario
+app.post('/users/follow/:userId', authenticateToken, async (req, res) => {
+  const { userId } = req.params;
+  const followerId = req.user.id;
+  
+  if (parseInt(userId) === followerId) {
+    return res.status(400).json({ error: 'No puedes seguirte a ti mismo' });
+  }
+  
+  try {
+    await pool.query(
+      'INSERT INTO follows (follower_id, followed_id) VALUES (?, ?)',
+      [followerId, userId]
+    );
+    
+    res.json({ success: true, message: 'Usuario seguido' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      res.status(400).json({ error: 'Ya sigues a este usuario' });
+    } else {
+      console.error('Error al seguir usuario:', error);
+      res.status(500).json({ error: 'Error al seguir usuario' });
+    }
+  }
+});
+
+// Dejar de seguir a un usuario
+app.delete('/users/follow/:userId', authenticateToken, async (req, res) => {
+  const { userId } = req.params;
+  const followerId = req.user.id;
+  
+  try {
+    await pool.query(
+      'DELETE FROM follows WHERE follower_id = ? AND followed_id = ?',
+      [followerId, userId]
+    );
+    
+    res.json({ success: true, message: 'Usuario dejado de seguir' });
+  } catch (error) {
+    console.error('Error al dejar de seguir usuario:', error);
+    res.status(500).json({ error: 'Error al dejar de seguir usuario' });
+  }
+});
+
+// Obtener usuarios que sigo
+app.get('/users/following', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    const [users] = await pool.query(`
+      SELECT u.id, u.username, u.email
+      FROM follows f
+      INNER JOIN usuarios u ON f.followed_id = u.id
+      WHERE f.follower_id = ?
+      ORDER BY f.created_at DESC
+    `, [userId]);
+    
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Error al obtener usuarios seguidos:', error);
+    res.status(500).json({ error: 'Error al obtener usuarios seguidos' });
+  }
+});
+
+// Obtener seguidores
+app.get('/users/followers', authenticateToken, async (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    const [users] = await pool.query(`
+      SELECT u.id, u.username, u.email
+      FROM follows f
+      INNER JOIN usuarios u ON f.follower_id = u.id
+      WHERE f.followed_id = ?
+      ORDER BY f.created_at DESC
+    `, [userId]);
+    
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Error al obtener seguidores:', error);
+    res.status(500).json({ error: 'Error al obtener seguidores' });
+  }
+});
+
 app.post('/outfits', authenticateToken, async (req, res) => {
   const usuario_id = req.user.id;
   const { nombre, post_ids } = req.body;
