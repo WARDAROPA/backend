@@ -42,9 +42,15 @@ export async function initDatabase() {
         username VARCHAR(50) UNIQUE NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
+        avatar LONGTEXT DEFAULT NULL,
+        bio TEXT DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Ensure existing databases get the new columns
+    await ensureColumnExists(connection, 'usuarios', 'avatar', 'LONGTEXT DEFAULT NULL');
+    await ensureColumnExists(connection, 'usuarios', 'bio', 'TEXT DEFAULT NULL');
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS posts (

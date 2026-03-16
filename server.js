@@ -134,7 +134,9 @@ app.post('/login', async (req, res) => {
       user: {
         id: user.id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        avatar: user.avatar || null,
+        bio: user.bio || ''
       }
     });
   } catch (error) {
@@ -199,6 +201,7 @@ app.get('/posts', async (req, res) => {
         p.created_at,
         u.id as usuario_id,
         u.username,
+        u.avatar as user_avatar,
         COALESCE(l.likes_count, 0) as likes_count,
         COALESCE(c.comments_count, 0) as comments_count,
         ${userLikedSelect}
@@ -261,6 +264,7 @@ app.get('/posts/following', authenticateToken, async (req, res) => {
         p.created_at,
         u.id as usuario_id,
         u.username,
+        u.avatar as user_avatar,
         COALESCE(l.likes_count, 0) as likes_count,
         COALESCE(c.comments_count, 0) as comments_count,
         ${userLikedSelect}
@@ -430,7 +434,7 @@ app.get('/users/search', async (req, res) => {
   
   try {
     const [users] = await pool.query(
-      'SELECT id, username, email FROM usuarios WHERE LOWER(username) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) LIMIT 20',
+      'SELECT id, username, email, avatar FROM usuarios WHERE LOWER(username) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) LIMIT 20',
       [`%${q}%`, `%${q}%`]
     );
     console.log('Usuarios encontrados:', users.length);
@@ -447,7 +451,7 @@ app.get('/users/:id(\\d+)', async (req, res) => {
   
   try {
     const [rows] = await pool.query(
-      'SELECT id, username, email FROM usuarios WHERE id = ?',
+      'SELECT id, username, email, avatar, bio FROM usuarios WHERE id = ?',
       [id]
     );
     
@@ -459,6 +463,47 @@ app.get('/users/:id(\\d+)', async (req, res) => {
   } catch (error) {
     console.error('Error al obtener usuario:', error);
     res.status(500).json({ error: 'Error al obtener usuario' });
+  }
+});
+
+app.put('/users/me', authenticateToken, async (req, res) => {
+  const usuario_id = req.user.id;
+  const { avatar, bio } = req.body;
+
+  if (avatar === undefined && bio === undefined) {
+    return res.status(400).json({ error: 'Nada para actualizar' });
+  }
+
+  const updates = [];
+  const params = [];
+
+  if (avatar !== undefined) {
+    updates.push('avatar = ?');
+    params.push(avatar);
+  }
+
+  if (bio !== undefined) {
+    updates.push('bio = ?');
+    params.push(bio);
+  }
+
+  params.push(usuario_id);
+
+  try {
+    await pool.query(
+      `UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`,
+      params
+    );
+
+    const [rows] = await pool.query(
+      'SELECT id, username, email, avatar, bio FROM usuarios WHERE id = ?',
+      [usuario_id]
+    );
+
+    res.json({ success: true, user: rows[0] });
+  } catch (error) {
+    console.error('Error al actualizar perfil:', error);
+    res.status(500).json({ error: 'Error al actualizar perfil' });
   }
 });
 
@@ -596,7 +641,7 @@ app.get('/users/following', authenticateToken, async (req, res) => {
   
   try {
     const [users] = await pool.query(`
-      SELECT u.id, u.username, u.email
+      SELECT u.id, u.username, u.email, u.avatar
       FROM follows f
       INNER JOIN usuarios u ON f.followed_id = u.id
       WHERE f.follower_id = ?
@@ -616,7 +661,7 @@ app.get('/users/followers', authenticateToken, async (req, res) => {
   
   try {
     const [users] = await pool.query(`
-      SELECT u.id, u.username, u.email
+      SELECT u.id, u.username, u.email, u.avatar
       FROM follows f
       INNER JOIN usuarios u ON f.follower_id = u.id
       WHERE f.followed_id = ?
