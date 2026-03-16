@@ -63,6 +63,24 @@ app.use((req, res, next) => {
 app.use(bodyParser.json({ limit: '20mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '20mb' }));
 
+// Error handler for body-parser 413 — must set CORS headers here too, since the
+// CORS middleware already ran but Express's default error handler would strip them
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    const allowedOrigins = ['http://localhost:4200', 'https://4.233.184.106', 'http://4.233.184.106', 'https://wardaropa.github.io'];
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+    } else {
+      res.header('Access-Control-Allow-Origin', '*');
+    }
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    return res.status(413).json({ error: 'La imagen es demasiado grande. Por favor usa una imagen más pequeña (máximo 5 MB).' });
+  }
+  next(err);
+});
+
 app.get('/', (req, res) => {
   res.json({ message: 'Bienvenido a Wardaropa API' });
 });
