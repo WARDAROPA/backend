@@ -377,7 +377,7 @@ app.get('/users/search', async (req, res) => {
   }
 });
 
-app.get('/users/:id', async (req, res) => {
+app.get('/users/:id(\\d+)', async (req, res) => {
   const { id } = req.params;
   
   try {
@@ -397,7 +397,7 @@ app.get('/users/:id', async (req, res) => {
   }
 });
 
-app.get('/users/:id/posts', async (req, res) => {
+app.get('/users/:id(\\d+)/posts', async (req, res) => {
   const { id } = req.params;
   
   try {
@@ -424,7 +424,7 @@ app.get('/users/:id/posts', async (req, res) => {
   }
 });
 
-app.get('/users/:id/outfits', async (req, res) => {
+app.get('/users/:id(\\d+)/outfits', async (req, res) => {
   const { id } = req.params;
 
   try {
