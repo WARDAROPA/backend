@@ -235,6 +235,71 @@ app.get('/posts', async (req, res) => {
   }
 });
 
+app.get('/posts/following', authenticateToken, async (req, res) => {
+  const usuario_id = req.user.id;
+  const parsedLimit = Number(req.query.limit);
+  const parsedOffset = Number(req.query.offset);
+  const limit = Number.isInteger(parsedLimit) && parsedLimit > 0
+    ? Math.min(parsedLimit, 30)
+    : 12;
+  const offset = Number.isInteger(parsedOffset) && parsedOffset >= 0
+    ? parsedOffset
+    : 0;
+  const queryLimit = limit + 1;
+
+  try {
+    const userLikedJoin = 'LEFT JOIN likes ul ON ul.post_id = p.id AND ul.usuario_id = ?';
+    const userLikedSelect = 'CASE WHEN ul.post_id IS NULL THEN 0 ELSE 1 END as user_liked';
+    const params = [usuario_id, queryLimit, offset, usuario_id];
+
+    const [posts] = await pool.query(
+      `
+      SELECT
+        p.id,
+        p.descripcion,
+        p.descripcion_prenda,
+        p.created_at,
+        u.id as usuario_id,
+        u.username,
+        COALESCE(l.likes_count, 0) as likes_count,
+        COALESCE(c.comments_count, 0) as comments_count,
+        ${userLikedSelect}
+      FROM (
+        SELECT id, usuario_id, descripcion, descripcion_prenda, created_at
+        FROM posts
+        WHERE usuario_id IN (
+          SELECT followed_id FROM follows WHERE follower_id = ?
+        )
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      ) p
+      INNER JOIN usuarios u ON p.usuario_id = u.id
+      LEFT JOIN (
+        SELECT post_id, COUNT(*) as likes_count
+        FROM likes
+        GROUP BY post_id
+      ) l ON l.post_id = p.id
+      LEFT JOIN (
+        SELECT post_id, COUNT(*) as comments_count
+        FROM comentarios
+        GROUP BY post_id
+      ) c ON c.post_id = p.id
+      ${userLikedJoin}
+      ORDER BY p.created_at DESC
+      `,
+      params
+    );
+
+    const hasMore = posts.length > limit;
+    const slicedPosts = hasMore ? posts.slice(0, limit) : posts;
+    
+    res.json({ success: true, posts: slicedPosts, hasMore });
+  } catch (error) {
+    console.error('Error al obtener posts de seguidos:', error);
+    res.status(500).json({ error: 'Error al obtener posts de seguidos' });
+  }
+});
+
 app.post('/posts/:postId/like', authenticateToken, async (req, res) => {
   const { postId } = req.params;
   const usuario_id = req.user.id;
