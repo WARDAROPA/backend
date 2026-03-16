@@ -1,5 +1,31 @@
-n8n nodes IA
--Match ropa
--Generación contenido con IA noticias a tiempo real
--Generador de outfits
--Generador automático de posts demo (usuarios ficticios)
+# Workflows de n8n - Wardaropa IA
+
+Este directorio contiene todos los workflows de inteligencia artificial que alimentan Wardaropa.
+
+## 📂 Estructura
+
+- `README.md` — **Documentación completa con screenshots y detalles técnicos de cada workflow**
+- `screenshots/` — Imágenes de los diagramas de cada workflow
+- `*.json` — Archivos importables directamente en n8n
+
+## 🤖 Workflows disponibles
+
+| Nombre | Archivo | Función |
+|--------|---------|----------|
+| **Descripción de Prendas** | `wardaropa_imagen_texto_ia_sql_n8n.json` | Analiza foto y genera descripción automática |
+| **Match IA** | `n8n_match_ia_sql.json` | Sugiere mejor combinación del armario |
+| **Recomendación de Outfits** | `wardaropa_outfit_recommendation_ia.json` | Crea outfits según descripción/ocasión |
+| **Scraping de Noticias** | `wardaropa_Scrap_and_post.json` | Publica noticias de moda automáticamente |
+| **Posts Demo** | `wardaropa_generar_posts_demo.json` | Genera datos de demostración |
+| **Try-On Virtual** | `wardaropa_outfit_tryon_ia.json` | Dos fases: genera outfit + restaura cara |
+
+## 🚀 Inicio rápido
+
+1. Lee `README.md` para entender qué hace cada workflow
+2. Importa los archivos `.json` en tu instancia de n8n
+3. Configura las variables de entorno en `.env` del backend
+4. Los webhooks se activarán automáticamente cuando el frontend los llame
+
+## 📖 Más información
+
+👉 Ver `README.md` para documentación completa con capturas de pantalla, flujos técnicos y ejemplos de entrada/salida.
