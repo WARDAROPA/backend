@@ -67,6 +67,10 @@ app.get('/', (req, res) => {
   res.json({ message: 'Bienvenido a Wardaropa API' });
 });
 
+app.get('/ping', (req, res) => {
+  res.json({ ok: true });
+});
+
 app.post('/register', async (req, res) => {
   const { username, email, password } = req.body;
   
