@@ -12,6 +12,7 @@ Aquí se encuentran todos los workflows de n8n que alimentan las funciones de in
 4. [Scraping y Publicación de Noticias](#4-scraping-y-publicación-de-noticias)
 5. [Generador de Posts Demo](#5-generador-de-posts-demo)
 6. [Try-On Virtual (Prueba de Outfit)](#6-try-on-virtual-dos-fases)
+7. [Cómo poner en marcha los workflows](#-cómo-usar-estos-workflows)
 
 ---
 
