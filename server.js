@@ -461,16 +461,18 @@ app.get('/users/:id/outfits', async (req, res) => {
 // Buscar usuarios
 app.get('/users/search', async (req, res) => {
   const { q } = req.query;
+  console.log('Búsqueda de usuarios:', q);
   
-  if (!q || q.trim().length < 2) {
-    return res.status(400).json({ error: 'La búsqueda debe tener al menos 2 caracteres' });
+  if (!q || q.trim().length < 1) {
+    return res.status(400).json({ error: 'La búsqueda debe tener al menos 1 caracter' });
   }
   
   try {
     const [users] = await pool.query(
-      'SELECT id, username, email FROM usuarios WHERE username LIKE ? OR email LIKE ? LIMIT 20',
+      'SELECT id, username, email FROM usuarios WHERE LOWER(username) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) LIMIT 20',
       [`%${q}%`, `%${q}%`]
     );
+    console.log('Usuarios encontrados:', users.length);
     
     res.json({ success: true, users });
   } catch (error) {
