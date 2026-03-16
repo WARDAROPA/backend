@@ -1,0 +1,161 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "outfit-tryon-ia",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "df36b2e5-9b15-4a39-843c-e4a8c636eca6",
+      "name": "Webhook TryOn1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        220,
+        120
+      ],
+      "webhookId": "wardaropa-outfit-tryon-ia"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json.body || $json;\nconst fotoUsuario = String(input.foto_usuario_base64 || '').trim();\nconst outfitItems = Array.isArray(input.outfit_items) ? input.outfit_items : [];\nconst outfitNombre = String(input.outfit_nombre || 'Outfit').trim();\n\nfunction getMimeAndData(dataUri, fallbackMime = 'image/jpeg') {\n  const match = String(dataUri || '').match(/^data:(.*?);base64,(.*)$/);\n  if (match) {\n    return { mime: match[1] || fallbackMime, data: match[2] || '' };\n  }\n  return { mime: fallbackMime, data: String(dataUri || '') };\n}\n\nif (!fotoUsuario) {\n  throw new Error('foto_usuario_base64 vacia');\n}\n\nif (outfitItems.length !== 4) {\n  throw new Error('outfit_items debe tener exactamente 4 prendas');\n}\n\nconst sourceUserImage = getMimeAndData(fotoUsuario, 'image/jpeg');\nconst garmentImages = outfitItems.map((item) => {\n  const parsed = getMimeAndData(item.foto_prenda_base64 || '', 'image/jpeg');\n  return {\n    slot: item.slot,\n    mime: parsed.mime,\n    data: parsed.data,\n    descripcion: String(item.descripcion_prenda || item.pie_foto || '').trim()\n  };\n});\n\nif (garmentImages.some((g) => !g.data)) {\n  throw new Error('Hay prendas sin imagen base64 valida');\n}\n\nconst garmentHints = garmentImages\n  .map((g) => `- Prenda slot ${g.slot}: ${g.descripcion || 'sin descripcion'}`)\n  .join('\\n');\n\nconst systemInstruction = `Eres un editor de imagen de moda. FASE 1: genera un try-on realista del outfit completo sobre la persona de la imagen base. Prioriza pose, cuerpo, proporcion, iluminacion y ropa. Si el rostro cambia ligeramente no importa porque habra una FASE 2 dedicada a restaurar identidad facial exacta.`;\n\nconst prompt = `FASE 1 - TRY ON DEL OUTFIT COMPLETO.\\n\\nUsa la PRIMERA imagen como foto base del usuario de cuerpo entero. Usa las 4 imagenes siguientes como referencias exactas de las prendas del outfit.\\n\\nOBJETIVO:\\n- Mantener cuerpo, pose, encuadre y fondo de la foto original.\\n- Aplicar las 4 prendas del outfit de forma coherente y realista.\\n- Priorizar realismo de caida, ajuste y combinacion del conjunto.\\n- No añadir prendas extra ni accesorios inventados.\\n\\nOUTFIT: ${outfitNombre}\\nDETALLE PRENDAS:\\n${garmentHints}`;\n\nconst parts = [\n  { text: prompt },\n  { inline_data: { mime_type: sourceUserImage.mime, data: sourceUserImage.data } }\n];\n\nfor (const g of garmentImages) {\n  parts.push({ inline_data: { mime_type: g.mime, data: g.data } });\n}\n\nreturn [{\n  json: {\n    sourceUserImage,\n    geminiRequest: {\n      systemInstruction: {\n        parts: [{ text: systemInstruction }]\n      },\n      contents: [\n        {\n          role: 'user',\n          parts\n        }\n      ],\n      generationConfig: {\n        temperature: 0.2,\n        topP: 0.85,\n        maxOutputTokens: 8192,\n        responseModalities: ['IMAGE', 'TEXT']\n      }\n    }\n  }\n}];"
+      },
+      "id": "32574191-cbe0-4c21-b174-0e21ad12a423",
+      "name": "Preparar Request Gemini TryOn1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={{$env.GEMINI_API_KEY}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiRequest) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "275366f5-cd79-434f-b950-bf58434667a9",
+      "name": "Gemini Outfit Base1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst parts = raw?.candidates?.[0]?.content?.parts || [];\nconst imagePart = parts.find((p) => p.inlineData?.data) || parts.find((p) => p.inline_data?.data);\nconst textPart = parts.find((p) => p.text);\n\nconst b64 = imagePart?.inlineData?.data || imagePart?.inline_data?.data || '';\nconst mime = imagePart?.inlineData?.mimeType || imagePart?.inline_data?.mime_type || 'image/png';\n\nif (!b64) {\n  throw new Error('Gemini no devolvio imagen en la fase 1 del try-on');\n}\n\nreturn [{\n  json: {\n    imagen_base_outfit: `data:${mime};base64,${b64}`,\n    descripcion_fase_1: String(textPart?.text || '').trim()\n  }\n}];"
+      },
+      "id": "b8560185-d7e2-433f-8050-c01c959ffed5",
+      "name": "Extraer Imagen Base Outfit1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key={{$env.GEMINI_API_KEY}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ systemInstruction: { parts: [{ text: 'Eres un experto en restauracion facial y preservacion de identidad. Debes reemplazar unicamente la cara y el cabello visibles de la imagen de outfit por la identidad de la imagen fuente del usuario. No cambies ropa, pose, cuerpo, fondo, iluminacion ni encuadre. No embellezcas. No inventes rasgos.' }] }, contents: [{ role: 'user', parts: [ { text: 'FASE 2 - RESTAURAR IDENTIDAD FACIAL.\\n\\nUsa la PRIMERA imagen como referencia de identidad facial real del usuario. Usa la SEGUNDA imagen como imagen del outfit ya generado.\\n\\nOBJETIVO:\\n- Mantener EXACTAMENTE la cara, rasgos, expresion, cabello y tono de piel de la PRIMERA imagen.\\n- Mantener EXACTAMENTE la ropa, pose, cuerpo y fondo de la SEGUNDA imagen.\\n- Sustituir solo la cara/cabello necesarios para recuperar identidad del usuario.\\n- No tocar el outfit ni reimaginar la ropa.' }, { inline_data: { mime_type: $('Preparar Request Gemini TryOn1').item.json.sourceUserImage.mime, data: $('Preparar Request Gemini TryOn1').item.json.sourceUserImage.data } }, { inline_data: { mime_type: $('Extraer Imagen Base Outfit1').item.json.imagen_base_outfit.split(';')[0].replace('data:', ''), data: $('Extraer Imagen Base Outfit1').item.json.imagen_base_outfit.split(',')[1] } } ] }], generationConfig: { temperature: 0.05, topP: 0.7, maxOutputTokens: 8192, responseModalities: ['IMAGE', 'TEXT'] } }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "f4d8b6d1-d282-4d5a-a120-18916f127005",
+      "name": "Gemini Restaurar Cara1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst parts = raw?.candidates?.[0]?.content?.parts || [];\nconst imagePart = parts.find((p) => p.inlineData?.data) || parts.find((p) => p.inline_data?.data);\nconst textPart = parts.find((p) => p.text);\n\nconst b64 = imagePart?.inlineData?.data || imagePart?.inline_data?.data || '';\nconst mime = imagePart?.inlineData?.mimeType || imagePart?.inline_data?.mime_type || 'image/png';\nconst descripcion = String(textPart?.text || 'Prueba de outfit generada con restauracion facial.').trim();\n\nif (!b64) {\n  throw new Error('Gemini no devolvio imagen en la fase 2 de restauracion facial');\n}\n\nreturn [{\n  json: {\n    imagen_resultado: `data:${mime};base64,${b64}`,\n    descripcion\n  }\n}];"
+      },
+      "id": "4d95b7fc-0c87-4778-b7d7-d1ae6756f006",
+      "name": "Extraer Imagen Resultado Final1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1820,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook TryOn1": {
+      "main": [
+        [
+          {
+            "node": "Preparar Request Gemini TryOn1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Request Gemini TryOn1": {
+      "main": [
+        [
+          {
+            "node": "Gemini Outfit Base1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Outfit Base1": {
+      "main": [
+        [
+          {
+            "node": "Extraer Imagen Base Outfit1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Imagen Base Outfit1": {
+      "main": [
+        [
+          {
+            "node": "Gemini Restaurar Cara1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Restaurar Cara1": {
+      "main": [
+        [
+          {
+            "node": "Extraer Imagen Resultado Final1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "f2d976ac820a993756afa7a65a73c4005d7455fac46d1ab6b9794f31dd00df0b"
+  }
+}

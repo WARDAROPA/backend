@@ -1,0 +1,323 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "2972789f-85cf-4ecf-b372-882516d76af1",
+      "name": "Trigger Periódico",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        352,
+        256
+      ],
+      "notes": "Se ejecuta cada 15 minutos para generar posts demo"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, username FROM usuarios ORDER BY RAND() LIMIT 1",
+        "options": {}
+      },
+      "id": "5244f7a3-6c15-4ee2-8492-a35e51e2dd8c",
+      "name": "Seleccionar Usuario Aleatorio",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        64,
+        32
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "df6V8NeUP9xusHY9",
+          "name": "MySQL account"
+        }
+      },
+      "notes": "Obtiene un usuario aleatorio de la BD"
+    },
+    {
+      "parameters": {
+        "jsCode": "const categorias = [\n  'camiseta casual',\n  'chaqueta de cuero',\n  'pantalones vaqueros',\n  'vestido elegante',\n  'zapatillas deportivas',\n  'botas de invierno',\n  'sudadera con capucha',\n  'blazer formal',\n  'falda midi',\n  'abrigo largo',\n  'jersey de lana',\n  'shorts de verano',\n  'camisa de lino',\n  'zapatos oxford',\n  'bolso de mano',\n  'gafas de sol',\n  'bufanda de seda',\n  'cinturón de cuero',\n  'reloj elegante',\n  'sombrero fedora'\n];\n\nconst estilos = [\n  'minimalista',\n  'streetwear',\n  'casual',\n  'elegante',\n  'bohemio',\n  'vintage',\n  'deportivo',\n  'formal',\n  'grunge',\n  'preppy'\n];\n\nconst colores = [\n  'negro',\n  'blanco',\n  'beige',\n  'azul marino',\n  'gris',\n  'camel',\n  'burdeos',\n  'verde oliva',\n  'rosa pastel',\n  'terracota'\n];\n\nconst randomCategoria = categorias[Math.floor(Math.random() * categorias.length)];\nconst randomEstilo = estilos[Math.floor(Math.random() * estilos.length)];\nconst randomColor = colores[Math.floor(Math.random() * colores.length)];\n\nconst usuario = $input.first().json;\n\nconst promptGeneracion = `Eres un experto en moda y estilismo. Genera una descripción detallada y profesional de una prenda de ropa para una red social de moda. En este caso tiene que ser ropa de Hombre y con estilo para combinar, no solo un estilo sino bastantes\n\nPrenda a describir: ${randomCategoria}\nEstilo: ${randomEstilo}\nColor principal: ${randomColor}\n\nGenera la respuesta en formato JSON con la siguiente estructura:\n{\n  \"pie_foto\": \"Un texto corto y atractivo de 1 línea que escribiría un usuario al publicar esta prenda en redes sociales\",\n  \"descripcion_prenda\": \"Una descripción objetiva y detallada de la prenda (material, corte, estilo, ocasión de uso) en 2-3 líneas\",\n  \"prompt_imagen\": \"Un prompt detallado en inglés para generar una imagen fotográfica realista de esta prenda, incluyendo ángulo, iluminación y contexto\"\n}\n\nResponde ÚNICAMENTE con el objeto JSON, sin texto adicional antes o después.`;\n\nreturn [{\n  json: {\n    usuario_id: usuario.id,\n    username: usuario.username,\n    prompt_generacion: promptGeneracion,\n    categoria: randomCategoria,\n    estilo: randomEstilo,\n    color: randomColor\n  }\n}];"
+      },
+      "id": "924e0f9a-d2ba-41ed-8b13-10b19249e111",
+      "name": "Preparar Prompt Generación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "notes": "Genera prompt aleatorio para crear contenido de prenda"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=API",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \n  contents: [{ \n    parts: [{ text: $json.prompt_generacion }] \n  }],\n  generationConfig: { \n    temperature: 0.8, \n    topP: 0.95, \n    maxOutputTokens: 1024 \n  } \n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "772a51ef-33ea-4bca-a6b6-59953d378eef",
+      "name": "Gemini - Generar Contenido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "notes": "Llama a Gemini para generar descripciones"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\nlet responseText = '';\ntry {\n  responseText = item.json.candidates[0].content.parts[0].text;\n} catch (error) {\n  throw new Error('No se pudo extraer texto de Gemini: ' + error.message);\n}\n\nlet jsonMatch = responseText.match(/\\{[\\s\\S]*\\}/);\nif (!jsonMatch) {\n  throw new Error('No se encontró JSON en la respuesta de Gemini');\n}\n\nlet parsedContent;\ntry {\n  parsedContent = JSON.parse(jsonMatch[0]);\n} catch (error) {\n  throw new Error('Error al parsear JSON: ' + error.message);\n}\n\nconst pieFoto = (parsedContent.pie_foto || '').trim();\nconst descripcionPrenda = (parsedContent.descripcion_prenda || '').trim();\nconst promptImagen = (parsedContent.prompt_imagen || '').trim();\n\nif (!pieFoto || !descripcionPrenda || !promptImagen) {\n  throw new Error('Faltan campos requeridos en la respuesta de IA');\n}\n\nreturn [{\n  json: {\n    usuario_id: item.json.usuario_id,\n    username: item.json.username,\n    pie_foto: pieFoto,\n    descripcion_prenda: descripcionPrenda,\n    prompt_imagen: promptImagen,\n    categoria: item.json.categoria,\n    estilo: item.json.estilo,\n    color: item.json.color\n  }\n}];"
+      },
+      "id": "c6bb4bd8-c067-42a0-b773-a84962e427ab",
+      "name": "Parsear Contenido IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "notes": "Extrae y parsea el JSON generado por Gemini"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash-image",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash-image (Nano Banana)"
+        },
+        "prompt": "={{ $json.prompt_imagen + ', high quality fashion photography, professional lighting, clean background, detailed texture, 4k, realistic' }}",
+        "options": {
+          "binaryPropertyOutput": "imagen_data"
+        }
+      },
+      "id": "82ab9080-8789-47f3-a90f-74b02d18f340",
+      "name": "Gemini - Generar Imagen",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        0
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "nr9q9VY1uHscSSEq",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "notes": "Genera imagen de la prenda usando Gemini"
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "binaryPropertyName": "imagen_data",
+        "options": {}
+      },
+      "id": "2de6474d-ef6e-4887-8094-16d218176341",
+      "name": "Convertir Imagen a Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        0
+      ],
+      "alwaysOutputData": false,
+      "notes": "Convierte imagen binaria a base64"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\nconst imagenBase64 = item.json.data || '';\n\nif (!imagenBase64) {\n  throw new Error('No se pudo obtener imagen en base64');\n}\n\nconst imagenConFormato = imagenBase64.startsWith('data:') \n  ? imagenBase64 \n  : `data:image/png;base64,${imagenBase64}`;\n\nreturn [{\n  json: {\n    usuario_id: item.json.usuario_id,\n    username: item.json.username,\n    descripcion: item.json.pie_foto,\n    descripcion_prenda: item.json.descripcion_prenda,\n    foto_base64: imagenConFormato,\n    categoria: item.json.categoria,\n    estilo: item.json.estilo,\n    color: item.json.color\n  }\n}];"
+      },
+      "id": "701dfb10-ef31-42c0-845e-1cdfe83d94ef",
+      "name": "Preparar Datos para BD",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "notes": "Prepara datos finales para insertar en MySQL"
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "posts",
+          "mode": "list",
+          "cachedResultName": "posts"
+        },
+        "dataMode": "defineBelow",
+        "valuesToSend": {
+          "values": [
+            {
+              "column": "usuario_id",
+              "value": "7"
+            },
+            {
+              "column": "descripcion",
+              "value": "={{ $('Parsear Contenido IA').item.json.descripcion_prenda }}"
+            },
+            {
+              "column": "descripcion_prenda",
+              "value": "={{ $('Parsear Contenido IA').item.json.descripcion_prenda }}"
+            },
+            {
+              "column": "foto",
+              "value": "={{ $json.foto_base64 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "55c9d292-8e78-467c-9332-7b5d7bfdabf2",
+      "name": "Insertar Post en BD",
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.5,
+      "position": [
+        1920,
+        0
+      ],
+      "credentials": {
+        "mySql": {
+          "id": "df6V8NeUP9xusHY9",
+          "name": "MySQL account"
+        }
+      },
+      "notes": "Inserta el post generado en la tabla posts"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\nconsole.log('✅ Post demo creado exitosamente');\nconsole.log(`Usuario: ${item.json.username} (ID: ${item.json.usuario_id})`);\nconsole.log(`Categoría: ${item.json.categoria}`);\nconsole.log(`Estilo: ${item.json.estilo}`);\nconsole.log(`Color: ${item.json.color}`);\n\nreturn [{\n  json: {\n    success: true,\n    message: 'Post demo generado y guardado correctamente',\n    usuario_id: item.json.usuario_id,\n    username: item.json.username,\n    post_id: item.json.id\n  }\n}];"
+      },
+      "id": "eaf22ccf-85f5-47b1-8845-84ae844cb024",
+      "name": "Log Resultado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        0
+      ],
+      "notes": "Registra resultado exitoso en logs"
+    }
+  ],
+  "connections": {
+    "Trigger Periódico": {
+      "main": [
+        [
+          {
+            "node": "Preparar Prompt Generación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seleccionar Usuario Aleatorio": {
+      "main": [
+        []
+      ]
+    },
+    "Preparar Prompt Generación": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Generar Contenido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Generar Contenido": {
+      "main": [
+        [
+          {
+            "node": "Parsear Contenido IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Contenido IA": {
+      "main": [
+        [
+          {
+            "node": "Gemini - Generar Imagen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Generar Imagen": {
+      "main": [
+        [
+          {
+            "node": "Convertir Imagen a Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convertir Imagen a Base64": {
+      "main": [
+        [
+          {
+            "node": "Preparar Datos para BD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Datos para BD": {
+      "main": [
+        [
+          {
+            "node": "Insertar Post en BD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insertar Post en BD": {
+      "main": [
+        [
+          {
+            "node": "Log Resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Resultado": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f2d976ac820a993756afa7a65a73c4005d7455fac46d1ab6b9794f31dd00df0b"
+  }
+}
