@@ -13,6 +13,7 @@ Aquí se encuentran todos los workflows de n8n que alimentan las funciones de in
 5. [Generador de Posts Demo](#5-generador-de-posts-demo)
 6. [Try-On Virtual (Prueba de Outfit)](#6-try-on-virtual-dos-fases)
 7. [Cómo poner en marcha los workflows](#-cómo-usar-estos-workflows)
+8. [Ejecutar el backend en local](#-ejecutar-el-backend-en-local)
 
 ---
 
@@ -299,6 +300,18 @@ const { data } = await axios.post(
 );
 ```
 
+## 🖥️ Ejecutar el backend en local
+
+Para que los workflows funcionen correctamente es necesario tener el backend de Wardaropa ejecutándose en local.
+
+### 1. Clonar el repositorio del backend
+
+```bash
+git clone https://github.com/TU_USUARIO/wardaropa-backend.git
+cd wardaropa-backend
+npm install
+node server.js
+```
 
 ## 📊 Monitoreo
 
