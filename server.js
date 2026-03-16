@@ -354,6 +354,29 @@ app.delete('/comments/:commentId', authenticateToken, async (req, res) => {
   }
 });
 
+// Buscar usuarios
+app.get('/users/search', async (req, res) => {
+  const { q } = req.query;
+  console.log('Búsqueda de usuarios:', q);
+  
+  if (!q || q.trim().length < 1) {
+    return res.status(400).json({ error: 'La búsqueda debe tener al menos 1 caracter' });
+  }
+  
+  try {
+    const [users] = await pool.query(
+      'SELECT id, username, email FROM usuarios WHERE LOWER(username) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) LIMIT 20',
+      [`%${q}%`, `%${q}%`]
+    );
+    console.log('Usuarios encontrados:', users.length);
+    
+    res.json({ success: true, users });
+  } catch (error) {
+    console.error('Error al buscar usuarios:', error);
+    res.status(500).json({ error: 'Error al buscar usuarios' });
+  }
+});
+
 app.get('/users/:id', async (req, res) => {
   const { id } = req.params;
   
@@ -455,29 +478,6 @@ app.get('/users/:id/outfits', async (req, res) => {
   } catch (error) {
     console.error('Error al obtener outfits:', error);
     res.status(500).json({ error: 'Error al obtener outfits' });
-  }
-});
-
-// Buscar usuarios
-app.get('/users/search', async (req, res) => {
-  const { q } = req.query;
-  console.log('Búsqueda de usuarios:', q);
-  
-  if (!q || q.trim().length < 1) {
-    return res.status(400).json({ error: 'La búsqueda debe tener al menos 1 caracter' });
-  }
-  
-  try {
-    const [users] = await pool.query(
-      'SELECT id, username, email FROM usuarios WHERE LOWER(username) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?) LIMIT 20',
-      [`%${q}%`, `%${q}%`]
-    );
-    console.log('Usuarios encontrados:', users.length);
-    
-    res.json({ success: true, users });
-  } catch (error) {
-    console.error('Error al buscar usuarios:', error);
-    res.status(500).json({ error: 'Error al buscar usuarios' });
   }
 });
 
