@@ -1,4 +1,4 @@
-# Workflows de n8n - Wardaropa IA
+# Workflows de n8n - Wardaropa
 
 Aquí se encuentran todos los workflows de n8n que alimentan las funciones de inteligencia artificial de Wardaropa. Cada workflow está optimizado para una tarea específica y se integra seamlessly con la API del backend.
 
