@@ -323,6 +323,37 @@ app.get('/posts/:postId/comments', async (req, res) => {
   }
 });
 
+// Eliminar un comentario de un post
+app.delete('/comments/:commentId', authenticateToken, async (req, res) => {
+  const { commentId } = req.params;
+  const usuario_id = req.user.id;
+
+  try {
+    const [rows] = await pool.query(`
+      SELECT c.usuario_id as comment_owner, p.usuario_id as post_owner 
+      FROM comentarios c 
+      JOIN posts p ON c.post_id = p.id 
+      WHERE c.id = ?
+    `, [commentId]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Comentario no encontrado' });
+    }
+
+    const { comment_owner, post_owner } = rows[0];
+
+    if (usuario_id !== comment_owner && usuario_id !== post_owner) {
+      return res.status(403).json({ error: 'No tienes permiso para borrar este comentario' });
+    }
+
+    await pool.query('DELETE FROM comentarios WHERE id = ?', [commentId]);
+    res.json({ success: true, message: 'Comentario eliminado correctamente' });
+  } catch (error) {
+    console.error('Error al eliminar comentario:', error);
+    res.status(500).json({ error: 'Error al eliminar comentario' });
+  }
+});
+
 app.get('/users/:id', async (req, res) => {
   const { id } = req.params;
   
